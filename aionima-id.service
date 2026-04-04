@@ -1,0 +1,33 @@
+[Unit]
+Description=Aionima ID Service — OAuth credential broker
+Documentation=https://github.com/Civicognita/aionima-id
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=%AIONIMA_USER%
+Group=%AIONIMA_USER%
+WorkingDirectory=/opt/aionima-id
+ExecStartPre=/usr/bin/npx drizzle-kit migrate
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aionima-id
+
+# Environment file for secrets (DATABASE_URL, ENCRYPTION_KEY, OAuth credentials)
+EnvironmentFile=/opt/aionima-id/.env
+
+# --- BEGIN CREDENTIALS ---
+# --- END CREDENTIALS ---
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/aionima-id/dist /opt/aionima-id/drizzle
+
+[Install]
+WantedBy=multi-user.target

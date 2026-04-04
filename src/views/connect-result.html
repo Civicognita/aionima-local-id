@@ -1,0 +1,30 @@
+<div class="card" style="max-width: 480px; margin: 0 auto; text-align: center;">
+  <div id="result-icon" style="font-size: 3rem; margin-bottom: 1rem;"></div>
+  <h1 id="result-title" style="margin-bottom: 0.75rem;"></h1>
+  <p id="result-desc" style="color: var(--text-muted); margin-bottom: 1.5rem;"></p>
+  <a href="/dashboard" id="result-link" class="btn btn-primary">Return to Dashboard</a>
+</div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const status = params.get("status");
+  const provider = params.get("provider") ?? "Service";
+
+  const icon = document.getElementById("result-icon");
+  const title = document.getElementById("result-title");
+  const desc = document.getElementById("result-desc");
+  const link = document.getElementById("result-link");
+
+  if (status === "success") {
+    icon.textContent = "\u2713";
+    title.textContent = provider + " Connected";
+    title.style.color = "#4caf50";
+    desc.textContent = "Your " + provider + " account has been successfully linked.";
+  } else {
+    icon.textContent = "\u2717";
+    title.textContent = "Connection Failed";
+    title.style.color = "#f44336";
+    desc.textContent = "Could not connect your " + provider + " account. Please try again.";
+    link.className = "btn btn-secondary";
+  }
+</script>

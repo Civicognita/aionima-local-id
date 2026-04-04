@@ -1,0 +1,734 @@
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+  <h1>Channel Setup</h1>
+  <div style="display: flex; align-items: center; gap: 1rem;">
+    <a href="/dashboard" style="color: var(--text-muted); font-size: 0.9rem; text-decoration: none;">Connected Services</a>
+  </div>
+</div>
+
+<div id="channel-grid">
+  <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+    Configure messaging channels so Aionima can send and receive messages on your behalf.
+  </p>
+  <div id="channel-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem;"></div>
+</div>
+
+<div id="wizard-section" style="display: none;">
+  <button onclick="backToGrid()" class="btn btn-secondary btn-sm" style="margin-bottom: 1.5rem;">
+    &larr; Back to channels
+  </button>
+  <div id="wizard-content"></div>
+</div>
+
+<style>
+  .channel-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .channel-card:hover {
+    border-color: var(--accent);
+    background: var(--surface2);
+  }
+  .channel-card .ch-icon {
+    font-size: 2rem;
+    margin-bottom: 0.75rem;
+  }
+  .channel-card .ch-name {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+  .channel-card .ch-desc {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+    line-height: 1.4;
+  }
+
+  .wizard-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2rem;
+    max-width: 680px;
+  }
+  .wizard-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .wizard-header .ch-icon { font-size: 1.5rem; }
+  .wizard-header h2 { font-size: 1.25rem; font-weight: 600; color: var(--text); }
+
+  .step-indicator {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 2rem;
+    margin-top: 1rem;
+  }
+  .step-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border);
+  }
+  .step-dot.active { background: var(--accent); }
+  .step-dot.done { background: var(--success); }
+
+  .step-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+  }
+  .step-body {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+  }
+  .step-body a { color: var(--accent); }
+  .step-body code {
+    background: var(--bg);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-family: monospace;
+  }
+  .step-body ol, .step-body ul {
+    margin-left: 1.25rem;
+    margin-top: 0.5rem;
+  }
+  .step-body li { margin-bottom: 0.35rem; }
+
+  .wizard-actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .test-result {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    display: none;
+  }
+  .test-result.ok {
+    background: rgba(76, 175, 80, 0.15);
+    border: 1px solid rgba(76, 175, 80, 0.4);
+    color: #a5d6a7;
+    display: block;
+  }
+  .test-result.fail {
+    background: rgba(244, 67, 54, 0.15);
+    border: 1px solid rgba(244, 67, 54, 0.4);
+    color: #ef9a9a;
+    display: block;
+  }
+
+  .badge-ok { background: rgba(76, 175, 80, 0.2); color: var(--success); }
+  .badge-warning { background: rgba(255, 152, 0, 0.2); color: var(--warning); }
+</style>
+
+<script>
+  var CHANNEL_STATUS = {{channel_status_json}};
+  var AVAILABLE_PROVIDERS = {{available_providers_json}};
+
+  function isProviderAvailable(providerId) {
+    return AVAILABLE_PROVIDERS.indexOf(providerId) !== -1;
+  }
+
+  var channels = {
+    telegram: {
+      id: "telegram",
+      icon: "TG",
+      label: "Telegram",
+      desc: "Send and receive messages via a Telegram bot.",
+      steps: [
+        {
+          title: "Create a Telegram bot",
+          body: function() {
+            return '<p>You need a bot token from BotFather.</p>'
+              + '<ol>'
+              + '<li>Open <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather on Telegram</a></li>'
+              + '<li>Send the command <code>/newbot</code></li>'
+              + '<li>Follow the prompts to choose a name and username</li>'
+              + '<li>Copy the <strong>bot token</strong> (looks like <code>123456:ABCdef...</code>)</li>'
+              + '</ol>';
+          },
+          fields: [],
+          action: "next"
+        },
+        {
+          title: "Enter your bot token",
+          body: function() { return '<p>Paste the bot token you received from BotFather.</p>'; },
+          fields: [
+            { id: "telegram_token", label: "Bot Token", placeholder: "123456:ABCdef-GHIjkl...", type: "text" }
+          ],
+          action: "test"
+        },
+        {
+          title: "Connection test",
+          body: function() {
+            var r = wizardState.testResult;
+            if (!r) return '<p>Testing your bot token with the Telegram API...</p>';
+            if (r.ok) return '<p style="color:var(--success)">Bot connected: <strong>' + escHtml(r.details || "") + '</strong></p>';
+            return '<p style="color:var(--danger)">Test failed: ' + escHtml(r.error || "Unknown error") + '</p>';
+          },
+          fields: [],
+          action: "next"
+        },
+        {
+          title: "Enter your Telegram user ID",
+          body: function() {
+            return '<p>Enter your numeric Telegram user ID. Aionima will only respond to messages from this ID.</p>'
+              + '<p>To find your ID, message <a href="https://t.me/userinfobot" target="_blank" rel="noopener">@userinfobot</a> on Telegram.</p>';
+          },
+          fields: [
+            { id: "telegram_owner_id", label: "Your Telegram User ID", placeholder: "123456789", type: "text" }
+          ],
+          action: "next"
+        },
+        {
+          title: "Save & enable Telegram",
+          body: function() { return '<p>Review your settings and save to enable the Telegram channel.</p>'; },
+          fields: [],
+          action: "save"
+        }
+      ]
+    },
+
+    discord: {
+      id: "discord",
+      icon: "DC",
+      label: "Discord",
+      desc: "Control Aionima from a Discord server using a bot.",
+      steps: [
+        {
+          title: "Create a Discord application",
+          body: function() {
+            return '<p>You need a bot token and application ID from the Discord Developer Portal.</p>'
+              + '<ol>'
+              + '<li>Go to <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">discord.com/developers/applications</a></li>'
+              + '<li>Click <strong>New Application</strong> and give it a name</li>'
+              + '<li>Go to the <strong>Bot</strong> tab and click <strong>Add Bot</strong></li>'
+              + '<li>Under <strong>Token</strong>, click <strong>Copy</strong> to copy the bot token</li>'
+              + '<li>Go back to <strong>General Information</strong> to find the Application ID</li>'
+              + '</ol>';
+          },
+          fields: [],
+          action: "next"
+        },
+        {
+          title: "Enter bot credentials",
+          body: function() { return '<p>Paste the bot token and application ID from the developer portal.</p>'; },
+          fields: [
+            { id: "discord_token", label: "Bot Token", placeholder: "MTIz...your bot token", type: "text" },
+            { id: "discord_app_id", label: "Application ID", placeholder: "123456789012345678", type: "text" }
+          ],
+          action: "test"
+        },
+        {
+          title: "Connection test",
+          body: function() {
+            var r = wizardState.testResult;
+            if (!r) return '<p>Validating your bot token with the Discord API...</p>';
+            if (r.ok) return '<p style="color:var(--success)">Bot connected: <strong>' + escHtml(r.details || "") + '</strong></p>';
+            return '<p style="color:var(--danger)">Test failed: ' + escHtml(r.error || "Unknown error") + '</p>';
+          },
+          fields: [],
+          action: "next"
+        },
+        {
+          title: "Authorize bot in your server",
+          body: function() {
+            var appId = wizardState.fields["discord_app_id"] || "";
+            var inviteUrl = appId
+              ? "https://discord.com/oauth2/authorize?client_id=" + encodeURIComponent(appId) + "&scope=bot&permissions=2048"
+              : "";
+            return '<p>Add the bot to your Discord server.</p>'
+              + (inviteUrl
+                ? '<p><a href="' + inviteUrl + '" target="_blank" rel="noopener" class="btn btn-primary">Add bot to server</a></p>'
+                : '<p style="color:var(--text-muted)">Enter your Application ID in step 2 to generate the invite link.</p>'
+              )
+              + '<p style="margin-top:0.75rem">Once invited, Aionima will listen in that server.</p>';
+          },
+          fields: [],
+          action: "next"
+        },
+        {
+          title: "Enter your Discord user ID",
+          body: function() {
+            return '<p>Enter your Discord user ID. Aionima will only accept commands from this user.</p>'
+              + '<p>To find your ID: open Discord settings &rarr; Advanced &rarr; enable Developer Mode, then right-click your name and select <strong>Copy User ID</strong>.</p>';
+          },
+          fields: [
+            { id: "discord_owner_id", label: "Your Discord User ID", placeholder: "123456789012345678", type: "text" }
+          ],
+          action: "next"
+        },
+        {
+          title: "Save & enable Discord",
+          body: function() { return '<p>Review your settings and save to enable the Discord channel.</p>'; },
+          fields: [],
+          action: "save"
+        }
+      ]
+    },
+
+    gmail: {
+      id: "gmail",
+      icon: "GM",
+      label: "Gmail",
+      desc: "Send and receive email via your Gmail account.",
+      steps: [
+        {
+          title: "Connect your Google account",
+          body: function() {
+            var conn = CHANNEL_STATUS.google;
+            if (conn && conn.connected) {
+              return '<p style="color:var(--success)">Google account connected as <strong>' + escHtml(conn.accountLabel || "") + '</strong>.</p>'
+                + '<p>Continue to the next step to set your owner email address.</p>';
+            }
+            return '<p>Aionima needs access to your Gmail to send and receive messages on your behalf.</p>'
+              + '<p>Click the button below to authorise with Google. You will be redirected back here when done.</p>';
+          },
+          fields: [],
+          action: "oauth_google"
+        },
+        {
+          title: "Enter your Gmail address",
+          body: function() { return '<p>Enter the Gmail address that Aionima should treat as the owner inbox.</p>'; },
+          fields: [
+            { id: "gmail_owner_email", label: "Owner Gmail address", placeholder: "you@gmail.com", type: "email" }
+          ],
+          action: "next"
+        },
+        {
+          title: "Save & enable Gmail",
+          body: function() { return '<p>Review your settings and save to enable the Gmail channel.</p>'; },
+          fields: [],
+          action: "save"
+        }
+      ]
+    },
+
+    signal: {
+      id: "signal",
+      icon: "SG",
+      label: "Signal",
+      desc: "Send and receive Signal messages via signal-cli REST API.",
+      steps: [
+        {
+          title: "Set up signal-cli REST API",
+          body: function() {
+            return '<p>Aionima uses the <a href="https://github.com/bbernhard/signal-cli-rest-api" target="_blank" rel="noopener">signal-cli REST API</a> to interact with Signal.</p>'
+              + '<ol>'
+              + '<li>Install and run signal-cli-rest-api (Docker is the easiest method)</li>'
+              + '<li>Register a phone number with <code>POST /v1/register/{number}</code></li>'
+              + '<li>Verify the registration code with <code>POST /v1/register/{number}/verify/{code}</code></li>'
+              + '<li>Note the API URL (e.g. <code>http://localhost:8080</code>) and the registered phone number</li>'
+              + '</ol>';
+          },
+          fields: [],
+          action: "next"
+        },
+        {
+          title: "Enter API connection details",
+          body: function() { return '<p>Provide the URL of your signal-cli REST API instance and the registered phone number.</p>'; },
+          fields: [
+            { id: "signal_api_url", label: "API URL", placeholder: "http://localhost:8080", type: "text" },
+            { id: "signal_number", label: "Registered phone number", placeholder: "+12025551234", type: "text" }
+          ],
+          action: "test"
+        },
+        {
+          title: "Connection test",
+          body: function() {
+            var r = wizardState.testResult;
+            if (!r) return '<p>Testing connection to the signal-cli REST API...</p>';
+            if (r.ok) return '<p style="color:var(--success)">Signal API reachable. ' + escHtml(r.details || "") + '</p>';
+            return '<p style="color:var(--danger)">Test failed: ' + escHtml(r.error || "Unknown error") + '</p>';
+          },
+          fields: [],
+          action: "next"
+        },
+        {
+          title: "Enter your Signal phone number",
+          body: function() {
+            return '<p>Enter your personal Signal phone number. Aionima will only accept commands from this number.</p>';
+          },
+          fields: [
+            { id: "signal_owner_number", label: "Your Signal phone number", placeholder: "+12025551234", type: "text" }
+          ],
+          action: "next"
+        },
+        {
+          title: "Save & enable Signal",
+          body: function() { return '<p>Review your settings and save to enable the Signal channel.</p>'; },
+          fields: [],
+          action: "save"
+        }
+      ]
+    },
+
+    whatsapp: {
+      id: "whatsapp",
+      icon: "WA",
+      label: "WhatsApp",
+      desc: "Send and receive WhatsApp messages via the Meta Cloud API.",
+      steps: [
+        {
+          title: "Set up Meta Cloud API",
+          body: function() {
+            return '<p>Aionima uses the Meta (WhatsApp) Business Cloud API.</p>'
+              + '<ol>'
+              + '<li>Go to <a href="https://developers.facebook.com" target="_blank" rel="noopener">developers.facebook.com</a> and create an app</li>'
+              + '<li>Add the <strong>WhatsApp</strong> product to your app</li>'
+              + '<li>In the WhatsApp &rarr; API Setup panel, note your <strong>Phone Number ID</strong></li>'
+              + '<li>Generate a <strong>Temporary Access Token</strong> (or a permanent System User token for production)</li>'
+              + '<li>Choose a <strong>Verify Token</strong> — any random string you make up</li>'
+              + '<li>Copy the <strong>App Secret</strong> from App Settings &rarr; Basic</li>'
+              + '</ol>';
+          },
+          fields: [],
+          action: "next"
+        },
+        {
+          title: "Enter your credentials",
+          body: function() { return '<p>Paste the credentials from the Meta developer portal.</p>'; },
+          fields: [
+            { id: "whatsapp_token", label: "Access Token", placeholder: "EAAx...", type: "text" },
+            { id: "whatsapp_phone_id", label: "Phone Number ID", placeholder: "123456789012345", type: "text" },
+            { id: "whatsapp_verify_token", label: "Verify Token (your chosen secret)", placeholder: "my-random-verify-token", type: "text" },
+            { id: "whatsapp_app_secret", label: "App Secret", placeholder: "abc123...", type: "text" }
+          ],
+          action: "test"
+        },
+        {
+          title: "Connection test",
+          body: function() {
+            var r = wizardState.testResult;
+            if (!r) return '<p>Validating your access token with the Meta Graph API...</p>';
+            if (r.ok) return '<p style="color:var(--success)">WhatsApp Business API connected. ' + escHtml(r.details || "") + '</p>';
+            return '<p style="color:var(--danger)">Test failed: ' + escHtml(r.error || "Unknown error") + '</p>';
+          },
+          fields: [],
+          action: "next"
+        },
+        {
+          title: "Enter your WhatsApp number",
+          body: function() {
+            return '<p>Enter your personal WhatsApp phone number. Aionima will only accept commands from this number.</p>';
+          },
+          fields: [
+            { id: "whatsapp_owner_number", label: "Your WhatsApp phone number", placeholder: "+12025551234", type: "text" }
+          ],
+          action: "next"
+        },
+        {
+          title: "Save & enable WhatsApp",
+          body: function() { return '<p>Review your settings and save to enable the WhatsApp channel.</p>'; },
+          fields: [],
+          action: "save"
+        }
+      ]
+    }
+  };
+
+  var wizardState = {
+    channelId: null,
+    step: 0,
+    fields: {},
+    testResult: null,
+    saving: false
+  };
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function getCsrfToken() {
+    var match = document.cookie.match(/(?:^|;\s*)aionima_csrf=([^;]*)/);
+    return match ? match[1] : "";
+  }
+
+  // ---------------------------------------------------------------------------
+  // Channel grid rendering
+  // ---------------------------------------------------------------------------
+
+  function renderGrid() {
+    var container = document.getElementById("channel-cards");
+    container.innerHTML = "";
+
+    Object.values(channels).forEach(function(ch) {
+      var status = CHANNEL_STATUS[ch.id];
+      var isConnected = status && status.connected;
+
+      var badgeHtml = isConnected
+        ? '<span class="badge badge-ok">Connected</span>'
+        : '<span class="badge badge-warning">Not configured</span>';
+
+      var card = document.createElement("div");
+      card.className = "channel-card";
+      card.onclick = function() { selectChannel(ch.id); };
+      card.innerHTML =
+        '<div class="ch-icon">' + escHtml(ch.icon) + '</div>'
+        + '<div class="ch-name">' + escHtml(ch.label) + '</div>'
+        + '<div class="ch-desc">' + escHtml(ch.desc) + '</div>'
+        + badgeHtml;
+      container.appendChild(card);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Wizard rendering
+  // ---------------------------------------------------------------------------
+
+  function selectChannel(id) {
+    wizardState.channelId = id;
+    wizardState.step = 0;
+    wizardState.fields = {};
+    wizardState.testResult = null;
+    document.getElementById("channel-grid").style.display = "none";
+    document.getElementById("wizard-section").style.display = "block";
+    renderWizard();
+  }
+
+  function backToGrid() {
+    wizardState.channelId = null;
+    document.getElementById("wizard-section").style.display = "none";
+    document.getElementById("channel-grid").style.display = "block";
+    refreshStatus();
+  }
+
+  function renderWizard() {
+    var ch = channels[wizardState.channelId];
+    if (!ch) return;
+
+    var step = ch.steps[wizardState.step];
+    if (!step) return;
+
+    var totalSteps = ch.steps.length;
+    var currentIdx = wizardState.step;
+
+    // Step indicator dots
+    var dotsHtml = "";
+    for (var i = 0; i < totalSteps; i++) {
+      if (i < currentIdx) dotsHtml += '<div class="step-dot done"></div>';
+      else if (i === currentIdx) dotsHtml += '<div class="step-dot active"></div>';
+      else dotsHtml += '<div class="step-dot"></div>';
+    }
+
+    // Fields
+    var fieldsHtml = "";
+    if (step.fields && step.fields.length > 0) {
+      step.fields.forEach(function(f) {
+        var val = escHtml(wizardState.fields[f.id] || "");
+        fieldsHtml += '<div class="form-group">'
+          + '<label for="' + escHtml(f.id) + '">' + escHtml(f.label) + '</label>'
+          + '<input id="' + escHtml(f.id) + '" type="' + escHtml(f.type) + '"'
+          + ' placeholder="' + escHtml(f.placeholder) + '"'
+          + ' value="' + val + '"'
+          + ' oninput="wizardState.fields[\'' + escHtml(f.id) + '\']=this.value"'
+          + ' />'
+          + '</div>';
+      });
+    }
+
+    // Action button
+    var actionHtml = "";
+    if (step.action === "next") {
+      actionHtml = '<button class="btn btn-primary" onclick="nextStep()">Continue &rarr;</button>';
+    } else if (step.action === "test") {
+      actionHtml = '<button id="test-btn" class="btn btn-primary" onclick="runTest()">Test connection</button>';
+    } else if (step.action === "save") {
+      actionHtml = '<button id="save-btn" class="btn btn-primary" onclick="saveChannel()">Save &amp; Enable</button>';
+    } else if (step.action === "oauth_google") {
+      var conn = CHANNEL_STATUS.google;
+      if (conn && conn.connected) {
+        actionHtml = '<button class="btn btn-primary" onclick="nextStep()">Continue &rarr;</button>';
+      } else if (isProviderAvailable("google")) {
+        actionHtml = '<a href="/oauth/google/start?role=owner" class="btn btn-primary">Connect with Google</a>';
+      } else {
+        actionHtml = '<div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">'
+          + '<span class="badge badge-disconnected" style="padding:0.5rem 0.75rem">Google OAuth not configured</span>'
+          + '<a href="/settings/providers" class="btn btn-sm btn-outline">Configure in Settings</a>'
+          + '</div>';
+      }
+    }
+
+    if (currentIdx > 0) {
+      actionHtml += ' <button class="btn btn-secondary" onclick="prevStep()">Back</button>';
+    }
+
+    var bodyHtml = typeof step.body === "function" ? step.body() : step.body;
+
+    var html = '<div class="wizard-card">'
+      + '<div class="wizard-header">'
+      + '<span class="ch-icon">' + escHtml(ch.icon) + '</span>'
+      + '<h2>' + escHtml(ch.label) + ' Setup</h2>'
+      + '</div>'
+      + '<div class="step-indicator">' + dotsHtml + '</div>'
+      + '<div class="step-title">' + escHtml(step.title) + '</div>'
+      + '<div class="step-body">' + bodyHtml + '</div>'
+      + fieldsHtml
+      + '<div class="wizard-actions">' + actionHtml + '</div>'
+      + '<div id="wizard-msg" class="test-result"></div>'
+      + '</div>';
+
+    document.getElementById("wizard-content").innerHTML = html;
+  }
+
+  function nextStep() {
+    var ch = channels[wizardState.channelId];
+    if (!ch) return;
+    if (wizardState.step < ch.steps.length - 1) {
+      wizardState.step++;
+      wizardState.testResult = null;
+    }
+    renderWizard();
+  }
+
+  function prevStep() {
+    if (wizardState.step > 0) {
+      wizardState.step--;
+      wizardState.testResult = null;
+    }
+    renderWizard();
+  }
+
+  // ---------------------------------------------------------------------------
+  // API calls
+  // ---------------------------------------------------------------------------
+
+  function runTest() {
+    var chId = wizardState.channelId;
+    var config = collectConfig(chId);
+    var btn = document.getElementById("test-btn");
+    if (btn) { btn.disabled = true; btn.textContent = "Testing..."; }
+
+    fetch("/api/channels/test", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": getCsrfToken()
+      },
+      body: JSON.stringify({ channelId: chId, config: config })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      wizardState.testResult = data;
+      wizardState.step++;
+      renderWizard();
+    })
+    .catch(function() {
+      wizardState.testResult = { ok: false, error: "Network error. Please try again." };
+      wizardState.step++;
+      renderWizard();
+    });
+  }
+
+  function saveChannel() {
+    var chId = wizardState.channelId;
+    var config = collectConfig(chId);
+    var ownerId = collectOwnerId(chId);
+    var btn = document.getElementById("save-btn");
+    if (btn) { btn.disabled = true; btn.textContent = "Saving..."; }
+
+    fetch("/api/channels/save", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": getCsrfToken()
+      },
+      body: JSON.stringify({ channelId: chId, config: config, ownerChannelId: ownerId, enabled: true })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        showWizardMsg("ok", "Channel saved and enabled.");
+        setTimeout(function() { backToGrid(); }, 1500);
+      } else {
+        showWizardMsg("fail", data.error || "Failed to save channel.");
+        if (btn) { btn.disabled = false; btn.textContent = "Save & Enable"; }
+      }
+    })
+    .catch(function() {
+      showWizardMsg("fail", "Network error. Please try again.");
+      if (btn) { btn.disabled = false; btn.textContent = "Save & Enable"; }
+    });
+  }
+
+  function showWizardMsg(type, text) {
+    var el = document.getElementById("wizard-msg");
+    if (!el) return;
+    el.className = "test-result " + type;
+    el.textContent = text;
+  }
+
+  function collectConfig(chId) {
+    var f = wizardState.fields;
+    if (chId === "telegram") {
+      return { token: f["telegram_token"] || "" };
+    }
+    if (chId === "discord") {
+      return { token: f["discord_token"] || "", appId: f["discord_app_id"] || "" };
+    }
+    if (chId === "gmail") {
+      return { ownerEmail: f["gmail_owner_email"] || "" };
+    }
+    if (chId === "signal") {
+      return { apiUrl: f["signal_api_url"] || "", phoneNumber: f["signal_number"] || "" };
+    }
+    if (chId === "whatsapp") {
+      return {
+        accessToken: f["whatsapp_token"] || "",
+        phoneNumberId: f["whatsapp_phone_id"] || "",
+        verifyToken: f["whatsapp_verify_token"] || "",
+        appSecret: f["whatsapp_app_secret"] || ""
+      };
+    }
+    return {};
+  }
+
+  function collectOwnerId(chId) {
+    var f = wizardState.fields;
+    if (chId === "telegram") return f["telegram_owner_id"] || "";
+    if (chId === "discord") return f["discord_owner_id"] || "";
+    if (chId === "gmail") return f["gmail_owner_email"] || "";
+    if (chId === "signal") return f["signal_owner_number"] || "";
+    if (chId === "whatsapp") return f["whatsapp_owner_number"] || "";
+    return "";
+  }
+
+  function refreshStatus() {
+    fetch("/api/channels/status", { credentials: "same-origin" })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (data.channels) {
+          data.channels.forEach(function(ch) {
+            CHANNEL_STATUS[ch.id] = ch;
+          });
+        }
+        renderGrid();
+      })
+      .catch(function() {
+        renderGrid();
+      });
+  }
+
+  // Boot
+  refreshStatus();
+</script>

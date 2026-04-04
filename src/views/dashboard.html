@@ -1,0 +1,63 @@
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+  <h1>Connected Services</h1>
+  <div style="color: var(--text-muted); font-size: 0.9rem;">
+    {{user_email}} &nbsp;|&nbsp;
+    <a href="#" onclick="logout()" style="color: var(--accent); text-decoration: none;">Log out</a>
+  </div>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Service</th>
+        <th>Account</th>
+        <th>Status</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{service_rows}}
+    </tbody>
+  </table>
+</div>
+
+<script>
+  function getCsrfToken() {
+    var match = document.cookie.match(/(?:^|;\s*)aionima_csrf=([^;]*)/);
+    return match ? match[1] : "";
+  }
+
+  function logout() {
+    fetch("/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "X-CSRF-Token": getCsrfToken() }
+    }).then(function() {
+      window.location.href = "/auth/login";
+    });
+  }
+
+  // Handle disconnect form submissions via fetch with CSRF
+  document.querySelectorAll("form[action*='/delete']").forEach(function(form) {
+    form.addEventListener("submit", function(e) {
+      e.preventDefault();
+      var action = form.getAttribute("action");
+      // Strip /delete suffix to get the connection ID endpoint
+      var deleteUrl = action.replace("/delete", "");
+      fetch(deleteUrl, {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { "X-CSRF-Token": getCsrfToken() }
+      }).then(function(res) {
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          res.json().then(function(data) {
+            alert(data.error || "Failed to disconnect");
+          });
+        }
+      });
+    });
+  });
+</script>

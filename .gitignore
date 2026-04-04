@@ -1,0 +1,8 @@
+node_modules/
+dist/
+# drizzle snapshots (generated), but migrations + journal must be tracked
+drizzle/meta/_snapshot/
+.env
+*.cred
+package-lock.json
+.aionima-project.json

@@ -1,0 +1,92 @@
+<div class="card" style="max-width: 560px; margin: 0 auto;">
+  <h1>Gateway Access Request</h1>
+  <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+    A local Aionima gateway is requesting access to your connected services.
+    Logged in as <strong>{{user_email}}</strong>.
+  </p>
+
+  <h2>Connected services to share:</h2>
+  <div id="connections-list" style="margin-bottom: 1.5rem;">
+    {{connections_list}}
+  </div>
+
+  <div id="error-msg" class="error-msg"></div>
+  <div id="success-msg" style="display:none; background: rgba(76,175,80,0.15); border: 1px solid rgba(76,175,80,0.4); color: #a5d6a7; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem;">
+    Tokens sent! You can close this window.
+  </div>
+
+  <div id="action-area">
+    <button id="approve-btn" class="btn btn-primary" onclick="approve()">
+      Approve &amp; Send to Gateway
+    </button>
+    <a href="/dashboard" class="btn btn-secondary" style="margin-left: 0.5rem;">Cancel</a>
+  </div>
+</div>
+
+<style>
+  .conn-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+  }
+  .conn-item .provider {
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+  .conn-item .label {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-left: auto;
+  }
+  .conn-item .role {
+    text-transform: capitalize;
+  }
+</style>
+
+<script>
+  var HANDOFF_ID = "{{handoff_id}}";
+
+  function getCsrfToken() {
+    var match = document.cookie.match(/(?:^|;\s*)aionima_csrf=([^;]*)/);
+    return match ? match[1] : "";
+  }
+
+  function approve() {
+    var btn = document.getElementById("approve-btn");
+    btn.disabled = true;
+    btn.textContent = "Sending...";
+
+    fetch("/api/handoff/" + HANDOFF_ID + "/approve", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "X-CSRF-Token": getCsrfToken()
+      }
+    })
+    .then(function(res) {
+      if (!res.ok) {
+        return res.json().then(function(data) {
+          var el = document.getElementById("error-msg");
+          el.textContent = data.error || "Failed to approve";
+          el.style.display = "block";
+          btn.disabled = false;
+          btn.textContent = "Approve & Send to Gateway";
+        });
+      }
+      document.getElementById("action-area").style.display = "none";
+      document.getElementById("success-msg").style.display = "block";
+    })
+    .catch(function() {
+      var el = document.getElementById("error-msg");
+      el.textContent = "Network error. Please try again.";
+      el.style.display = "block";
+      btn.disabled = false;
+      btn.textContent = "Approve & Send to Gateway";
+    });
+  }
+</script>
