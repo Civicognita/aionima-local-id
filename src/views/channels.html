@@ -138,6 +138,7 @@
 <script>
   var CHANNEL_STATUS = {{channel_status_json}};
   var AVAILABLE_PROVIDERS = {{available_providers_json}};
+  var HIVE_ID_URL = "{{hive_id_url}}";
 
   function isProviderAvailable(providerId) {
     return AVAILABLE_PROVIDERS.indexOf(providerId) !== -1;
@@ -463,6 +464,86 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Google OAuth delegation via Hive-ID popup
+  // ---------------------------------------------------------------------------
+
+  var oauthDelegatePoller = null;
+
+  function connectViaHiveId(provider, role) {
+    var btn = document.getElementById("oauth-google-btn");
+    var statusEl = document.getElementById("oauth-google-status");
+    if (btn) { btn.disabled = true; btn.textContent = "Connecting..."; }
+    if (statusEl) { statusEl.style.display = "block"; statusEl.style.color = "var(--text-muted)"; statusEl.textContent = "Connecting to Hive-ID..."; }
+
+    if (oauthDelegatePoller) {
+      clearInterval(oauthDelegatePoller);
+      oauthDelegatePoller = null;
+    }
+
+    fetch("/api/oauth/delegate", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": getCsrfToken()
+      },
+      body: JSON.stringify({ provider: provider, role: role })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (!data.popupUrl) {
+        if (statusEl) { statusEl.style.color = "var(--danger)"; statusEl.textContent = data.error || "Failed to start OAuth delegation."; }
+        if (btn) { btn.disabled = false; btn.textContent = "Connect with Google"; }
+        return;
+      }
+
+      var popup = window.open(data.popupUrl, "hive-oauth", "width=600,height=700,noopener");
+      if (!popup) {
+        if (statusEl) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Popup blocked. Please allow popups for this site and try again."; }
+        if (btn) { btn.disabled = false; btn.textContent = "Connect with Google"; }
+        return;
+      }
+
+      if (statusEl) { statusEl.style.color = "var(--text-muted)"; statusEl.textContent = "Waiting for you to complete OAuth in the popup..."; }
+
+      oauthDelegatePoller = setInterval(function() {
+        fetch("/api/oauth/delegate/poll", {
+          credentials: "same-origin"
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(status) {
+          if (status.complete) {
+            clearInterval(oauthDelegatePoller);
+            oauthDelegatePoller = null;
+            if (popup && !popup.closed) popup.close();
+
+            var label = status.accountLabel || "your Google account";
+            if (statusEl) { statusEl.style.color = "var(--success)"; statusEl.textContent = "Connected as " + label + "."; }
+            if (btn) { btn.disabled = false; btn.textContent = "Connect with Google"; }
+
+            // Update local status so the step shows as connected
+            CHANNEL_STATUS.google = { id: "google", connected: true, accountLabel: label };
+            renderWizard();
+          } else if (status.error) {
+            clearInterval(oauthDelegatePoller);
+            oauthDelegatePoller = null;
+            if (popup && !popup.closed) popup.close();
+            if (statusEl) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "OAuth failed: " + status.error; }
+            if (btn) { btn.disabled = false; btn.textContent = "Connect with Google"; }
+          }
+        })
+        .catch(function() {
+          // Ignore transient poll errors — keep polling
+        });
+      }, 2000);
+    })
+    .catch(function() {
+      if (statusEl) { statusEl.style.color = "var(--danger)"; statusEl.textContent = "Network error. Cannot reach the local ID service."; }
+      if (btn) { btn.disabled = false; btn.textContent = "Connect with Google"; }
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Channel grid rendering
   // ---------------------------------------------------------------------------
 
@@ -557,13 +638,12 @@
       var conn = CHANNEL_STATUS.google;
       if (conn && conn.connected) {
         actionHtml = '<button class="btn btn-primary" onclick="nextStep()">Continue &rarr;</button>';
-      } else if (isProviderAvailable("google")) {
-        actionHtml = '<a href="/oauth/google/start?role=owner" class="btn btn-primary">Connect with Google</a>';
       } else {
-        actionHtml = '<div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">'
-          + '<span class="badge badge-disconnected" style="padding:0.5rem 0.75rem">Google OAuth not configured</span>'
-          + '<a href="/settings/providers" class="btn btn-sm btn-outline">Configure in Settings</a>'
-          + '</div>';
+        // Always delegate Google OAuth to Hive-ID — local URL cannot receive callbacks
+        actionHtml = '<button id="oauth-google-btn" class="btn btn-primary" onclick="connectViaHiveId(\'google\', \'owner\')">'
+          + 'Connect with Google'
+          + '</button>'
+          + '<div id="oauth-google-status" style="margin-top:0.75rem;font-size:0.9rem;display:none;"></div>';
       }
     }
 

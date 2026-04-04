@@ -15,6 +15,7 @@ import { handoffRoutes } from "./routes/handoff.js";
 import { channelRoutes } from "./routes/channels.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { userRoutes } from "./routes/users.js";
+import { oauthDelegateRoutes } from "./routes/oauth-delegate.js";
 import { federationIdentityRoutes, buildNodeManifest } from "./routes/federation/identity.js";
 import { csrfMiddleware } from "./security/csrf.js";
 import { rateLimit } from "./security/rate-limit.js";
@@ -104,6 +105,7 @@ app.use("/api/handoff/*/approve", csrfMiddleware());
 app.use("/api/channels/test", csrfMiddleware());
 app.use("/api/channels/save", csrfMiddleware());
 app.use("/api/settings/providers/*", csrfMiddleware());
+app.use("/api/oauth/delegate", csrfMiddleware());
 
 // ---------------------------------------------------------------------------
 // Rate limiting
@@ -139,6 +141,7 @@ const skippedProviders = mounted.filter((p) => !p.available).map((p) => p.def.la
 app.route("/api/connections", connectRoutes(db));
 app.route("/api/handoff", handoffRoutes(db, lucia));
 app.route("/api/users", userRoutes(db, entityService));
+app.route("/api/oauth/delegate", oauthDelegateRoutes(db));
 app.route("/dashboard", dashboardRoutes(db));
 app.route("/channels", channelRoutes(db));
 app.route("/api/channels", channelRoutes(db));

@@ -20,6 +20,7 @@ import type { NetworkIdentity } from "../auth/network-identity.js";
 import { readView } from "../views/loader.js";
 import { getAvailableProviderIds } from "../providers/registry.js";
 import type { DrizzleDb } from "../db/client.js";
+import { getConfig } from "../config.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -222,10 +223,12 @@ export function channelRoutes(db?: DrizzleDb) {
       ? await getAvailableProviderIds(db)
       : [];
 
+    const config = getConfig();
     const channelsHtml = await readView("channels.html");
     const content = channelsHtml
       .replace("{{channel_status_json}}", JSON.stringify(statusMap))
-      .replace("{{available_providers_json}}", JSON.stringify(availableProviders));
+      .replace("{{available_providers_json}}", JSON.stringify(availableProviders))
+      .replace("{{hive_id_url}}", config.hiveIdUrl);
 
     const layout = await readView("layout.html");
     const html = layout

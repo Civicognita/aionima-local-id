@@ -22,7 +22,11 @@
   </table>
 </div>
 
+<div id="delegate-status" style="display:none;position:fixed;bottom:1.5rem;right:1.5rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1rem 1.25rem;font-size:0.9rem;max-width:320px;z-index:1000;"></div>
+
 <script>
+  var HIVE_ID_URL = "{{hive_id_url}}";
+
   function getCsrfToken() {
     var match = document.cookie.match(/(?:^|;\s*)aionima_csrf=([^;]*)/);
     return match ? match[1] : "";
@@ -60,4 +64,91 @@
       });
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // OAuth delegation via Hive-ID popup
+  // ---------------------------------------------------------------------------
+
+  var delegatePoller = null;
+
+  function showDelegateStatus(msg, type) {
+    var el = document.getElementById("delegate-status");
+    if (!el) return;
+    el.style.display = "block";
+    el.style.color = type === "ok" ? "var(--success)" : type === "fail" ? "var(--danger)" : "var(--text)";
+    el.textContent = msg;
+  }
+
+  function hideDelegateStatus() {
+    var el = document.getElementById("delegate-status");
+    if (el) el.style.display = "none";
+  }
+
+  function connectProvider(provider, role) {
+    if (delegatePoller) {
+      clearInterval(delegatePoller);
+      delegatePoller = null;
+    }
+
+    showDelegateStatus("Connecting to Hive-ID...", "");
+
+    fetch("/api/oauth/delegate", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": getCsrfToken()
+      },
+      body: JSON.stringify({ provider: provider, role: role })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (!data.popupUrl) {
+        showDelegateStatus(data.error || "Failed to start OAuth delegation.", "fail");
+        return;
+      }
+
+      var popup = window.open(data.popupUrl, "hive-oauth", "width=600,height=700,noopener");
+      if (!popup) {
+        showDelegateStatus("Popup blocked. Please allow popups for this site and try again.", "fail");
+        return;
+      }
+
+      showDelegateStatus("Waiting for you to complete OAuth in the popup...", "");
+
+      delegatePoller = setInterval(function() {
+        fetch("/api/oauth/delegate/poll", {
+          credentials: "same-origin"
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(status) {
+          if (status.complete) {
+            clearInterval(delegatePoller);
+            delegatePoller = null;
+            if (popup && !popup.closed) popup.close();
+            if (status.warning) {
+              showDelegateStatus("Connected (no token returned). " + status.warning, "ok");
+            } else {
+              showDelegateStatus("Connected as " + (status.accountLabel || provider) + ". Refreshing...", "ok");
+            }
+            setTimeout(function() {
+              hideDelegateStatus();
+              window.location.reload();
+            }, 1500);
+          } else if (status.error) {
+            clearInterval(delegatePoller);
+            delegatePoller = null;
+            if (popup && !popup.closed) popup.close();
+            showDelegateStatus("OAuth failed: " + status.error, "fail");
+          }
+        })
+        .catch(function() {
+          // Ignore transient poll errors — keep polling
+        });
+      }, 2000);
+    })
+    .catch(function(err) {
+      showDelegateStatus("Network error. Cannot reach the local ID service.", "fail");
+    });
+  }
 </script>

@@ -4,9 +4,36 @@ import type { AuthEnv } from "../auth/middleware.js";
 import type { NetworkIdentity } from "../auth/network-identity.js";
 import type { DrizzleDb } from "../db/client.js";
 import { providerSettings } from "../db/schema.js";
-import { encrypt, decrypt } from "../crypto.js";
+import { encrypt } from "../crypto.js";
 import { readView } from "../views/loader.js";
 import { getConfig } from "../config.js";
+
+// ---------------------------------------------------------------------------
+// Hive-ID health check
+// ---------------------------------------------------------------------------
+
+interface HiveIdStatus {
+  reachable: boolean;
+  providers: string[];
+  url: string;
+}
+
+async function checkHiveId(): Promise<HiveIdStatus> {
+  const config = getConfig();
+  const url = config.hiveIdUrl;
+  try {
+    const res = await fetch(`${url}/.well-known/mycelium-node.json`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      return { reachable: false, providers: [], url };
+    }
+    const manifest = await res.json() as { providers?: string[] };
+    return { reachable: true, providers: manifest.providers ?? [], url };
+  } catch {
+    return { reachable: false, providers: [], url };
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,33 +61,19 @@ const KNOWN_PROVIDERS = ["google", "github", "discord"] as const;
 export function settingsRoutes(db: DrizzleDb) {
   const app = new Hono<SettingsEnv>();
 
-  // GET /providers — settings wizard page (HTML)
+  // GET /providers — settings page (HTML)
   app.get("/providers", async (c) => {
     if (!isOwner(c)) {
       return c.redirect("/auth/login?redirect=/settings/providers");
     }
 
-    const rows = await db.select().from(providerSettings);
-    const providers = KNOWN_PROVIDERS.map((id) => {
-      const row = rows.find((r) => r.id === id);
-      return {
-        id,
-        configured: !!row?.clientId,
-        enabled: row?.enabled ?? false,
-        clientIdPreview: row?.clientId
-          ? decrypt(row.clientId).slice(0, 8) + "..."
-          : null,
-        configuredAt: row?.configuredAt?.toISOString() ?? null,
-      };
-    });
-
     const config = getConfig();
-    const baseUrl = config.baseUrl;
+    const hiveStatus = await checkHiveId();
 
     const html = await readView("settings-providers.html");
     const content = html
-      .replace("{{providers_json}}", JSON.stringify(providers))
-      .replace(/\{\{base_url\}\}/g, baseUrl);
+      .replace("{{hive_id_url}}", config.hiveIdUrl)
+      .replace("{{hive_id_status_json}}", JSON.stringify(hiveStatus));
 
     const layout = await readView("layout.html");
     return c.html(
@@ -84,6 +97,48 @@ export function settingsRoutes(db: DrizzleDb) {
         configuredAt: r.configuredAt?.toISOString() ?? null,
       })),
     );
+  });
+
+  // GET /providers/hive-id-status — JSON Hive-ID health check (for live refresh)
+  app.get("/providers/hive-id-status", async (c) => {
+    if (!isOwner(c)) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+    const status = await checkHiveId();
+    return c.json(status);
+  });
+
+  // POST /providers/hive-id-url — save a new Hive-ID URL
+  // The URL is loaded from the HIVE_ID_URL env var at startup. This endpoint
+  // informs the user to update their environment and restart the service.
+  app.post("/providers/hive-id-url", async (c) => {
+    if (!isOwner(c)) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({})) as { url?: string };
+    const newUrl = body.url?.trim();
+
+    if (!newUrl || !newUrl.startsWith("http")) {
+      return c.json({ error: "A valid HTTP/HTTPS URL is required" }, 400);
+    }
+
+    // Validate the URL parses cleanly
+    try {
+      new URL(newUrl);
+    } catch {
+      return c.json({ error: "Invalid URL format" }, 400);
+    }
+
+    // Log the requested change — the operator must update HIVE_ID_URL in their
+    // environment and restart the service. This is intentional: env vars are the
+    // authoritative source for service configuration.
+    console.log(`[settings] Hive-ID URL change requested: ${newUrl} (update HIVE_ID_URL env var and restart)`);
+
+    return c.json({
+      ok: true,
+      message: `Update HIVE_ID_URL=${newUrl} in your environment and restart the service.`,
+    });
   });
 
   // POST /providers/:id — save (upsert) credentials for a provider

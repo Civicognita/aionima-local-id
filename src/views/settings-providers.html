@@ -4,11 +4,70 @@
 </div>
 
 <p style="color: var(--text-muted); margin-bottom: 2rem; font-size: 0.95rem;">
-  Configure OAuth credentials for each provider. Credentials are stored encrypted in the database.
-  You need these to let users connect their accounts (e.g. "Connect with Google").
+  OAuth providers (Google, GitHub, Discord) are managed by Hive-ID at <strong id="hive-url-display"></strong>.
+  Hive-ID handles OAuth callbacks from external providers on behalf of this local node.
 </p>
 
-<div id="provider-cards"></div>
+<div id="hive-status-card" class="provider-card" style="margin-bottom: 2rem;">
+  <div class="provider-card-header">
+    <div class="provider-identity">
+      <div class="provider-icon hive" style="background: var(--accent2);">HV</div>
+      <div>
+        <div class="provider-name">Hive-ID</div>
+        <div class="provider-meta" id="hive-meta">Checking connection...</div>
+      </div>
+    </div>
+    <div class="provider-actions">
+      <span id="hive-badge" class="badge badge-disconnected">Checking...</span>
+      <button class="btn btn-sm btn-secondary" onclick="refreshHiveStatus()">Refresh</button>
+    </div>
+  </div>
+
+  <div id="hive-providers-section" style="display:none;margin-top:0.75rem;">
+    <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.5rem;">
+      Providers available at Hive-ID:
+    </div>
+    <div id="hive-provider-badges" style="display:flex;gap:0.5rem;flex-wrap:wrap;"></div>
+  </div>
+
+  <div id="hive-url-form" style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--border);">
+    <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.6rem;">
+      Hive-ID URL — change this if you run your own Hive-ID instance:
+    </div>
+    <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+      <input
+        id="hive-url-input"
+        type="url"
+        placeholder="https://id.aionima.ai"
+        style="flex:1;min-width:240px;padding:0.5rem 0.8rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.9rem;"
+      />
+      <button class="btn btn-primary btn-sm" onclick="saveHiveUrl()">Save URL</button>
+      <span id="hive-url-msg" style="font-size:0.85rem;"></span>
+    </div>
+  </div>
+</div>
+
+<div class="provider-card" style="background: rgba(255,152,0,0.05); border-color: rgba(255,152,0,0.3);">
+  <div style="display:flex;align-items:flex-start;gap:0.75rem;">
+    <div style="font-size:1.25rem;line-height:1;">i</div>
+    <div>
+      <div style="font-weight:600;margin-bottom:0.4rem;">How OAuth delegation works</div>
+      <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.6;margin-bottom:0.5rem;">
+        This local node (<code>id.ai.on</code>) cannot receive OAuth callbacks from Google, GitHub, or Discord
+        because external providers cannot reach a local URL.
+      </p>
+      <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.6;margin-bottom:0.5rem;">
+        When you click "Connect" on the Connections page, a popup opens on Hive-ID where you complete
+        the OAuth flow. Once authorized, your tokens are delivered back to this node via the handoff
+        mechanism and stored encrypted in the local database.
+      </p>
+      <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.6;">
+        Token channels (Telegram, Discord bot, Signal, WhatsApp) are entered directly in the Channel Setup
+        wizard and do not require Hive-ID.
+      </p>
+    </div>
+  </div>
+</div>
 
 <style>
   .provider-card {
@@ -22,7 +81,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 1rem;
+    margin-bottom: 0;
   }
   .provider-identity {
     display: flex;
@@ -40,9 +99,6 @@
     font-weight: 700;
     color: white;
   }
-  .provider-icon.google { background: #4285f4; }
-  .provider-icon.github { background: #333; }
-  .provider-icon.discord { background: #5865f2; }
   .provider-name {
     font-size: 1.05rem;
     font-weight: 600;
@@ -58,154 +114,11 @@
     gap: 0.5rem;
     align-items: center;
   }
-
-  .callback-url-box {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.6rem 0.9rem;
-    font-family: monospace;
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    word-break: break-all;
-    margin-bottom: 1rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-  .callback-url-box span { flex: 1; }
-  .copy-btn {
-    background: var(--surface2);
-    border: none;
-    border-radius: 4px;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 0.75rem;
-    padding: 0.25rem 0.6rem;
-    white-space: nowrap;
-  }
-  .copy-btn:hover { color: var(--text); }
-
-  .instructions-toggle {
-    background: none;
-    border: none;
-    color: var(--accent);
-    cursor: pointer;
-    font-size: 0.85rem;
-    padding: 0;
-    margin-bottom: 0.75rem;
-    text-decoration: underline;
-  }
-  .instructions-body {
-    display: none;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 1rem;
-    margin-bottom: 1rem;
-    font-size: 0.875rem;
-    color: var(--text-muted);
-    line-height: 1.6;
-  }
-  .instructions-body.open { display: block; }
-  .instructions-body ol, .instructions-body ul {
-    margin-left: 1.25rem;
-    margin-top: 0.5rem;
-  }
-  .instructions-body li { margin-bottom: 0.35rem; }
-  .instructions-body a { color: var(--accent); }
-
-  .cred-form {
-    display: none;
-  }
-  .cred-form.open {
-    display: block;
-  }
-  .cred-form-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    margin-bottom: 1rem;
-  }
-  @media (max-width: 600px) {
-    .cred-form-row { grid-template-columns: 1fr; }
-  }
-  .cred-actions {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
-  .save-msg {
-    font-size: 0.85rem;
-    margin-left: 0.5rem;
-  }
-  .save-msg.ok { color: var(--success); }
-  .save-msg.fail { color: var(--danger); }
-
-  .btn-outline {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-  }
-  .btn-outline:hover { border-color: var(--accent); color: var(--text); }
 </style>
 
 <script>
-  var BASE_URL = "{{base_url}}";
-  var PROVIDERS_DATA = {{providers_json}};
-
-  var PROVIDER_META = {
-    google: {
-      label: "Google",
-      iconClass: "google",
-      iconText: "G",
-      docsUrl: "https://console.cloud.google.com/apis/credentials",
-      instructions: function(baseUrl) {
-        var cb = baseUrl + "/oauth/google/callback";
-        return '<ol>'
-          + '<li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console &rarr; Credentials</a></li>'
-          + '<li>Click <strong>Create Credentials &rarr; OAuth client ID</strong></li>'
-          + '<li>Choose <strong>Web application</strong> as the application type</li>'
-          + '<li>Under <strong>Authorised redirect URIs</strong>, add the callback URL shown above</li>'
-          + '<li>Click <strong>Create</strong> and copy the <strong>Client ID</strong> and <strong>Client Secret</strong></li>'
-          + '</ol>';
-      }
-    },
-    github: {
-      label: "GitHub",
-      iconClass: "github",
-      iconText: "GH",
-      docsUrl: "https://github.com/settings/developers",
-      instructions: function(baseUrl) {
-        var cb = baseUrl + "/oauth/github/callback";
-        return '<ol>'
-          + '<li>Go to <a href="https://github.com/settings/applications/new" target="_blank" rel="noopener">GitHub &rarr; Settings &rarr; Developer settings &rarr; New OAuth App</a></li>'
-          + '<li>Set <strong>Homepage URL</strong> to <code>' + escHtml(baseUrl) + '</code></li>'
-          + '<li>Set <strong>Authorization callback URL</strong> to the callback URL shown above</li>'
-          + '<li>Click <strong>Register application</strong></li>'
-          + '<li>Copy the <strong>Client ID</strong> and generate a <strong>Client Secret</strong></li>'
-          + '</ol>';
-      }
-    },
-    discord: {
-      label: "Discord",
-      iconClass: "discord",
-      iconText: "DC",
-      docsUrl: "https://discord.com/developers/applications",
-      instructions: function(baseUrl) {
-        var cb = baseUrl + "/oauth/discord/callback";
-        return '<ol>'
-          + '<li>Go to <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a></li>'
-          + '<li>Click <strong>New Application</strong> and give it a name</li>'
-          + '<li>Go to <strong>OAuth2</strong> in the left sidebar</li>'
-          + '<li>Under <strong>Redirects</strong>, add the callback URL shown above</li>'
-          + '<li>Copy the <strong>Client ID</strong> from the General Information page</li>'
-          + '<li>Click <strong>Reset Secret</strong> to generate a <strong>Client Secret</strong></li>'
-          + '</ol>';
-      }
-    }
-  };
+  var HIVE_ID_URL = "{{hive_id_url}}";
+  var HIVE_ID_STATUS = {{hive_id_status_json}};
 
   function escHtml(str) {
     return String(str)
@@ -220,183 +133,93 @@
     return match ? match[1] : "";
   }
 
-  function callbackUrl(providerId) {
-    return BASE_URL + "/oauth/" + providerId + "/callback";
+  function applyHiveStatus(status) {
+    document.getElementById("hive-url-display").textContent = status.url || HIVE_ID_URL;
+    document.getElementById("hive-url-input").value = status.url || HIVE_ID_URL;
+
+    var badge = document.getElementById("hive-badge");
+    var meta = document.getElementById("hive-meta");
+    var providersSection = document.getElementById("hive-providers-section");
+    var badgesContainer = document.getElementById("hive-provider-badges");
+
+    if (status.reachable) {
+      badge.className = "badge badge-connected";
+      badge.textContent = "Reachable";
+      meta.textContent = "Connected to " + escHtml(status.url);
+    } else {
+      badge.className = "badge badge-disconnected";
+      badge.textContent = "Unreachable";
+      meta.textContent = "Cannot reach " + escHtml(status.url) + " — OAuth delegation will not work";
+    }
+
+    if (status.providers && status.providers.length > 0) {
+      providersSection.style.display = "block";
+      badgesContainer.innerHTML = status.providers.map(function(p) {
+        return '<span class="badge badge-connected" style="font-size:0.8rem;">' + escHtml(p) + '</span>';
+      }).join("");
+    } else {
+      providersSection.style.display = "none";
+    }
   }
 
-  function toggleInstructions(providerId) {
-    var el = document.getElementById("instr-" + providerId);
-    if (el) el.classList.toggle("open");
+  function refreshHiveStatus() {
+    var badge = document.getElementById("hive-badge");
+    badge.className = "badge badge-disconnected";
+    badge.textContent = "Checking...";
+
+    fetch("/api/settings/providers/hive-id-status", { credentials: "same-origin" })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        applyHiveStatus(data);
+      })
+      .catch(function() {
+        var b = document.getElementById("hive-badge");
+        b.textContent = "Check failed";
+        document.getElementById("hive-meta").textContent = "Could not reach local settings API.";
+      });
   }
 
-  function toggleForm(providerId) {
-    var el = document.getElementById("form-" + providerId);
-    if (el) el.classList.toggle("open");
-  }
+  function saveHiveUrl() {
+    var input = document.getElementById("hive-url-input");
+    var msgEl = document.getElementById("hive-url-msg");
+    var newUrl = input.value.trim();
 
-  function copyToClipboard(text, btnId) {
-    navigator.clipboard.writeText(text).then(function() {
-      var btn = document.getElementById(btnId);
-      if (btn) {
-        var orig = btn.textContent;
-        btn.textContent = "Copied!";
-        setTimeout(function() { btn.textContent = orig; }, 1500);
-      }
-    });
-  }
-
-  function saveProvider(providerId) {
-    var clientId = document.getElementById("cid-" + providerId).value.trim();
-    var clientSecret = document.getElementById("csec-" + providerId).value.trim();
-    var msgEl = document.getElementById("msg-" + providerId);
-    var saveBtn = document.getElementById("savebtn-" + providerId);
-
-    if (!clientId || !clientSecret) {
-      msgEl.className = "save-msg fail";
-      msgEl.textContent = "Both Client ID and Client Secret are required.";
+    if (!newUrl || !newUrl.startsWith("http")) {
+      msgEl.style.color = "var(--danger)";
+      msgEl.textContent = "Please enter a valid URL.";
       return;
     }
 
-    saveBtn.disabled = true;
-    saveBtn.textContent = "Saving...";
-    msgEl.textContent = "";
-    msgEl.className = "save-msg";
+    msgEl.style.color = "var(--text-muted)";
+    msgEl.textContent = "Saving...";
 
-    fetch("/api/settings/providers/" + providerId, {
+    fetch("/api/settings/providers/hive-id-url", {
       method: "POST",
       credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
         "X-CSRF-Token": getCsrfToken()
       },
-      body: JSON.stringify({ clientId: clientId, clientSecret: clientSecret })
+      body: JSON.stringify({ url: newUrl })
     })
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data.ok) {
-        msgEl.className = "save-msg ok";
-        msgEl.textContent = "Saved successfully.";
-        saveBtn.disabled = false;
-        saveBtn.textContent = "Save";
-        // Refresh page to show updated status
-        setTimeout(function() { window.location.reload(); }, 800);
+        msgEl.style.color = "var(--success)";
+        msgEl.textContent = "Saved. Restart the service for the change to take effect.";
+        HIVE_ID_URL = newUrl;
+        document.getElementById("hive-url-display").textContent = newUrl;
       } else {
-        msgEl.className = "save-msg fail";
+        msgEl.style.color = "var(--danger)";
         msgEl.textContent = data.error || "Failed to save.";
-        saveBtn.disabled = false;
-        saveBtn.textContent = "Save";
       }
     })
     .catch(function() {
-      msgEl.className = "save-msg fail";
+      msgEl.style.color = "var(--danger)";
       msgEl.textContent = "Network error. Please try again.";
-      saveBtn.disabled = false;
-      saveBtn.textContent = "Save";
     });
   }
 
-  function removeProvider(providerId) {
-    if (!confirm("Remove credentials for " + providerId + "? This will disable OAuth for this provider.")) {
-      return;
-    }
-
-    fetch("/api/settings/providers/" + providerId, {
-      method: "DELETE",
-      credentials: "same-origin",
-      headers: { "X-CSRF-Token": getCsrfToken() }
-    })
-    .then(function(res) { return res.json(); })
-    .then(function(data) {
-      if (data.ok) {
-        window.location.reload();
-      } else {
-        alert(data.error || "Failed to remove credentials.");
-      }
-    })
-    .catch(function() {
-      alert("Network error. Please try again.");
-    });
-  }
-
-  function renderCards() {
-    var container = document.getElementById("provider-cards");
-    container.innerHTML = "";
-
-    PROVIDERS_DATA.forEach(function(p) {
-      var meta = PROVIDER_META[p.id];
-      if (!meta) return;
-
-      var cb = callbackUrl(p.id);
-      var cbId = "cb-btn-" + p.id;
-
-      var statusBadge = p.configured
-        ? '<span class="badge badge-connected">Configured</span>'
-        : '<span class="badge badge-disconnected">Not configured</span>';
-
-      var metaText = p.configured
-        ? "Client ID: " + escHtml(p.clientIdPreview || "") + (p.configuredAt ? " &mdash; saved " + new Date(p.configuredAt).toLocaleDateString() : "")
-        : "Enter credentials to enable OAuth for this provider.";
-
-      var actionButtons = p.configured
-        ? '<button class="btn btn-sm btn-secondary" onclick="toggleForm(\'' + p.id + '\')">Edit</button>'
-          + ' <button class="btn btn-sm btn-danger" onclick="removeProvider(\'' + p.id + '\')">Remove</button>'
-        : '<button class="btn btn-sm btn-primary" onclick="toggleForm(\'' + p.id + '\')">Configure</button>';
-
-      var formOpenClass = p.configured ? "" : " open";
-
-      var card = document.createElement("div");
-      card.className = "provider-card";
-      card.innerHTML =
-        '<div class="provider-card-header">'
-          + '<div class="provider-identity">'
-            + '<div class="provider-icon ' + escHtml(meta.iconClass) + '">' + escHtml(meta.iconText) + '</div>'
-            + '<div>'
-              + '<div class="provider-name">' + escHtml(meta.label) + '</div>'
-              + '<div class="provider-meta">' + metaText + '</div>'
-            + '</div>'
-          + '</div>'
-          + '<div class="provider-actions">'
-            + statusBadge
-            + ' ' + actionButtons
-          + '</div>'
-        + '</div>'
-
-        + '<div style="margin-bottom:0.6rem;">'
-          + '<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.4rem;">Callback URL &mdash; add this in the provider console:</div>'
-          + '<div class="callback-url-box">'
-            + '<span>' + escHtml(cb) + '</span>'
-            + '<button id="' + escHtml(cbId) + '" class="copy-btn" onclick="copyToClipboard(\'' + escHtml(cb) + '\', \'' + escHtml(cbId) + '\')">Copy</button>'
-          + '</div>'
-        + '</div>'
-
-        + '<button class="instructions-toggle" onclick="toggleInstructions(\'' + p.id + '\')">'
-          + 'Show setup instructions'
-        + '</button>'
-        + '<div id="instr-' + escHtml(p.id) + '" class="instructions-body">'
-          + meta.instructions(BASE_URL)
-        + '</div>'
-
-        + '<div id="form-' + escHtml(p.id) + '" class="cred-form' + formOpenClass + '">'
-          + '<div class="cred-form-row">'
-            + '<div class="form-group">'
-              + '<label for="cid-' + escHtml(p.id) + '">Client ID</label>'
-              + '<input id="cid-' + escHtml(p.id) + '" type="text" placeholder="Paste client ID here" autocomplete="off" />'
-            + '</div>'
-            + '<div class="form-group">'
-              + '<label for="csec-' + escHtml(p.id) + '">Client Secret</label>'
-              + '<input id="csec-' + escHtml(p.id) + '" type="password" placeholder="Paste client secret here" autocomplete="new-password" />'
-            + '</div>'
-          + '</div>'
-          + '<div class="cred-actions">'
-            + '<button id="savebtn-' + escHtml(p.id) + '" class="btn btn-primary btn-sm" onclick="saveProvider(\'' + p.id + '\')">Save</button>'
-            + '<button class="btn btn-secondary btn-sm" onclick="toggleForm(\'' + p.id + '\')">Cancel</button>'
-            + '<span id="msg-' + escHtml(p.id) + '" class="save-msg"></span>'
-          + '</div>'
-        + '</div>';
-
-      container.appendChild(card);
-    });
-  }
-
-  renderCards();
+  // Boot — apply server-rendered status, then do a live check
+  applyHiveStatus(HIVE_ID_STATUS);
 </script>

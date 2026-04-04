@@ -6,7 +6,7 @@ import type { DrizzleDb } from "../db/client.js";
 import { connections } from "../db/schema.js";
 import { escapeHtml } from "../security/escape.js";
 import { readView } from "../views/loader.js";
-import { getAvailableProviderIds } from "../providers/registry.js";
+import { getConfig } from "../config.js";
 
 export function dashboardRoutes(db: DrizzleDb) {
   const app = new Hono<AuthEnv & { Variables: { identity?: NetworkIdentity } }>();
@@ -29,8 +29,7 @@ export function dashboardRoutes(db: DrizzleDb) {
       userConnections.map((conn) => [`${conn.provider}:${conn.role}`, conn]),
     );
 
-    // Build slots from all registered providers (checks both DB and .env)
-    const available = new Set(await getAvailableProviderIds(db));
+    // Build slots for all OAuth providers — all connect via Hive-ID delegation
     const allSlots = [
       { provider: "google", role: "owner", label: "Google (Owner)" },
       { provider: "google", role: "agent", label: "Google (Agent)" },
@@ -43,7 +42,6 @@ export function dashboardRoutes(db: DrizzleDb) {
     const serviceRows = allSlots
       .map((slot) => {
         const conn = connectedMap.get(`${slot.provider}:${slot.role}`);
-        const isAvailable = available.has(slot.provider);
         if (conn) {
           return `
           <tr>
@@ -56,32 +54,30 @@ export function dashboardRoutes(db: DrizzleDb) {
               </form>
             </td>
           </tr>`;
-        } else if (isAvailable) {
+        } else {
+          // OAuth connections always go through Hive-ID delegation
           return `
           <tr>
             <td>${escapeHtml(slot.label)}</td>
             <td>—</td>
             <td><span class="badge badge-disconnected">Not connected</span></td>
             <td>
-              <a href="/oauth/${escapeHtml(slot.provider)}/start?role=${escapeHtml(slot.role)}" class="btn btn-sm btn-primary">Connect</a>
+              <button
+                class="btn btn-sm btn-primary"
+                onclick="connectProvider('${escapeHtml(slot.provider)}', '${escapeHtml(slot.role)}')"
+              >Connect</button>
             </td>
-          </tr>`;
-        } else {
-          return `
-          <tr>
-            <td>${escapeHtml(slot.label)}</td>
-            <td>—</td>
-            <td><span class="badge badge-warning">Not configured</span></td>
-            <td><a href="/settings/providers" class="btn btn-sm btn-outline">Configure</a></td>
           </tr>`;
         }
       })
       .join("\n");
 
+    const config = getConfig();
     const dashboardHtml = await readView("dashboard.html");
     const content = dashboardHtml
       .replace("{{user_email}}", escapeHtml(user?.email ?? "Owner (local)"))
-      .replace("{{service_rows}}", serviceRows);
+      .replace("{{service_rows}}", serviceRows)
+      .replace("{{hive_id_url}}", escapeHtml(config.hiveIdUrl));
 
     const layout = await readView("layout.html");
     const html = layout
