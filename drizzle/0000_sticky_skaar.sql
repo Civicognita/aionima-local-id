@@ -56,15 +56,6 @@ CREATE TABLE "handoffs" (
 	"expires_at" timestamp NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "provider_settings" (
-	"id" text PRIMARY KEY NOT NULL,
-	"client_id" text,
-	"client_secret" text,
-	"enabled" boolean DEFAULT false NOT NULL,
-	"configured_at" timestamp,
-	"updated_at" timestamp
-);
---> statement-breakpoint
 CREATE TABLE "registrations" (
 	"id" text PRIMARY KEY NOT NULL,
 	"entity_id" text NOT NULL,

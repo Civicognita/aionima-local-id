@@ -143,20 +143,6 @@ export const handoffs = pgTable("handoffs", {
 });
 
 // ---------------------------------------------------------------------------
-// Provider Settings (DB-backed OAuth credentials)
-// ---------------------------------------------------------------------------
-
-/** Per-provider OAuth credentials, encrypted at rest. */
-export const providerSettings = pgTable("provider_settings", {
-  id: text("id").primaryKey(),
-  clientId: text("client_id"),
-  clientSecret: text("client_secret"),
-  enabled: pgBoolean("enabled").default(false).notNull(),
-  configuredAt: timestamp("configured_at"),
-  updatedAt: timestamp("updated_at"),
-});
-
-// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -173,5 +159,3 @@ export type NewEntity = typeof entities.$inferInsert;
 export type GeidLocalRecord = typeof geidLocal.$inferSelect;
 export type AgentBinding = typeof agentBindings.$inferSelect;
 export type Registration = typeof registrations.$inferSelect;
-export type ProviderSetting = typeof providerSettings.$inferSelect;
-export type NewProviderSetting = typeof providerSettings.$inferInsert;

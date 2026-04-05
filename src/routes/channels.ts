@@ -18,8 +18,6 @@ import { Hono } from "hono";
 import type { AuthEnv } from "../auth/middleware.js";
 import type { NetworkIdentity } from "../auth/network-identity.js";
 import { readView } from "../views/loader.js";
-import { getAvailableProviderIds } from "../providers/registry.js";
-import type { DrizzleDb } from "../db/client.js";
 import { getConfig } from "../config.js";
 
 // ---------------------------------------------------------------------------
@@ -192,7 +190,7 @@ async function testWhatsApp(config: Record<string, unknown>): Promise<TestResult
 // Route factory
 // ---------------------------------------------------------------------------
 
-export function channelRoutes(db?: DrizzleDb) {
+export function channelRoutes(_db?: unknown) {
   const app = new Hono<ChannelsEnv>();
 
   // -------------------------------------------------------------------------
@@ -218,10 +216,8 @@ export function channelRoutes(db?: DrizzleDb) {
       statusMap[entry.id] = { id: entry.id, connected: entry.enabled };
     }
 
-    // Get available OAuth providers (DB-configured + .env-configured)
-    const availableProviders = db
-      ? await getAvailableProviderIds(db)
-      : [];
+    // OAuth providers are managed by Hive-ID — no local providers.
+    const availableProviders: string[] = [];
 
     const config = getConfig();
     const channelsHtml = await readView("channels.html");

@@ -25,12 +25,6 @@ export interface IdServiceConfig {
     url: string | undefined;
     apiKey: string | undefined;
   };
-  /** OAuth provider credentials — only providers with configured env vars are active */
-  providers: {
-    google: { clientId: string; clientSecret: string } | null;
-    github: { clientId: string; clientSecret: string } | null;
-    discord: { clientId: string; clientSecret: string } | null;
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -75,20 +69,6 @@ export function loadConfig(): IdServiceConfig {
     ownerNode: {
       url: process.env.OWNER_NODE_URL,
       apiKey: process.env.OWNER_NODE_API_KEY,
-    },
-    providers: {
-      google:
-        process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-          ? { clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET }
-          : null,
-      github:
-        process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
-          ? { clientId: process.env.GITHUB_CLIENT_ID, clientSecret: process.env.GITHUB_CLIENT_SECRET }
-          : null,
-      discord:
-        process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET
-          ? { clientId: process.env.DISCORD_CLIENT_ID, clientSecret: process.env.DISCORD_CLIENT_SECRET }
-          : null,
     },
   };
 

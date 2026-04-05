@@ -9,10 +9,12 @@
  *
  * This is a local-only service. The node manifest always advertises mode "local".
  * For global GEID lookups, callers should query the public Hive-ID service.
+ * The local snapshot cache is checked first for offline-capable verification.
  */
 
 import { Hono } from "hono";
 import { getConfig } from "../../config.js";
+import { lookupGeid, lookupTrust } from "../../services/snapshot-cache.js";
 import type { NetworkIdentity } from "../../auth/network-identity.js";
 
 // Augmented context type — network identity is set by middleware
@@ -45,19 +47,38 @@ export function federationIdentityRoutes() {
 
   /**
    * POST /federation/verify
-   * Verify a GEID or node identity. Any node can ask "is this GEID registered?"
-   * Central mode checks the geid_registry; local mode only knows about itself.
+   * Verify a GEID or node identity. Checks the local Hive-ID snapshot cache
+   * first — if the GEID is cached, returns the result immediately without
+   * reaching out to Hive-ID (offline-capable). Falls back to a Hive-ID redirect
+   * hint when the GEID is not in the local cache.
    */
   app.post("/verify", async (c) => {
     const body = await c.req.json().catch(() => ({})) as { geid?: string; nodeId?: string };
     const config = getConfig();
 
     if (body.geid) {
-      // Local-ID only knows its own node — delegate global lookups to Hive-ID.
+      // Check local snapshot cache first (offline-capable)
+      const cached = lookupGeid(body.geid);
+      if (cached) {
+        const trust = lookupTrust(body.geid) ?? [];
+        return c.json({
+          geid: body.geid,
+          known: true,
+          source: "snapshot-cache",
+          publicKey: cached.publicKey,
+          homeNodeUrl: cached.homeNodeUrl,
+          displayName: cached.displayName,
+          trustTier: cached.trustTier,
+          trustCerts: trust,
+        });
+      }
+
+      // Not in cache — direct caller to Hive-ID for authoritative lookup
       return c.json({
         geid: body.geid,
         known: false,
-        hint: "Local ID service only knows its own node. Query the HIVE registry for global lookups.",
+        source: "local",
+        hint: "GEID not in local snapshot cache. Query the HIVE registry for authoritative lookup.",
         hiveIdUrl: config.hiveIdUrl,
       });
     }
@@ -76,24 +97,21 @@ export function federationIdentityRoutes() {
 export function buildNodeManifest(): Record<string, unknown> {
   const config = getConfig();
 
-  const capabilities: Record<string, boolean> = {
-    oauth: Object.values(config.providers).some((p) => p !== null),
-    handoff: true,
-    federation: true,
-  };
-
   return {
     schema: "mycelium-node-v1",
     service: "aionima-local-id",
     mode: "local",
     url: config.baseUrl,
-    capabilities,
+    capabilities: {
+      oauth: false,
+      handoff: true,
+      federation: true,
+    },
     federation: {
       verifyEndpoint: `${config.baseUrl}/federation/verify`,
       whoamiEndpoint: `${config.baseUrl}/federation/whoami`,
     },
-    providers: Object.entries(config.providers)
-      .filter(([, v]) => v !== null)
-      .map(([k]) => k),
+    // OAuth providers are managed by Hive-ID, not this local node
+    providers: [],
   };
 }

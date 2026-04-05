@@ -32,7 +32,6 @@ import type { DrizzleDb } from "../db/client.js";
 import { connections, entities, geidLocal, handoffs, users } from "../db/schema.js";
 import { readView } from "../views/loader.js";
 import { getConfig } from "../config.js";
-import { getAvailableProviders } from "../providers/registry.js";
 import type { NetworkIdentity } from "../auth/network-identity.js";
 
 const TTL_MS = 15 * 60 * 1000; // 15 minutes
@@ -186,11 +185,7 @@ export function handoffRoutes(db: DrizzleDb, lucia: AppLucia) {
         );
       }
 
-      const available = getAvailableProviders();
-      const filteredProviders = providerFilter
-        ? available.filter((p) => providerFilter.includes(p.id))
-        : available;
-
+      // OAuth providers are managed by Hive-ID — no local connect buttons.
       const connList = userConnections
         .map(
           (conn) => `
@@ -202,16 +197,7 @@ export function handoffRoutes(db: DrizzleDb, lucia: AppLucia) {
         )
         .join("\n");
 
-      const connectedProviders = new Set(userConnections.map((co) => co.provider));
-      const connectButtons = filteredProviders
-        .filter((p) => !connectedProviders.has(p.id))
-        .map(
-          (p) => `
-          <a href="/oauth/${escapeHtml(p.id)}/start?role=owner" class="connect-btn">
-            Connect ${escapeHtml(p.label)}
-          </a>`,
-        )
-        .join("\n");
+      const connectButtons = "";
 
       const approveHtml = await readView("handoff-approve.html");
       pageContent = approveHtml

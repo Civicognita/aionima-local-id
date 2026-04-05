@@ -21,10 +21,7 @@ import { csrfMiddleware } from "./security/csrf.js";
 import { rateLimit } from "./security/rate-limit.js";
 import { startHandoffCleanup } from "./jobs/cleanup.js";
 import { loadConfig } from "./config.js";
-import { registerProvider, mountProviders } from "./providers/registry.js";
-import { googleProviderDef } from "./routes/oauth/google.js";
-import { githubProviderDef } from "./routes/oauth/github.js";
-import { discordProviderDef } from "./routes/oauth/discord.js";
+import { startSnapshotRefresh } from "./services/snapshot-cache.js";
 import type { AuthEnv } from "./auth/middleware.js";
 import { readView } from "./views/loader.js";
 
@@ -73,7 +70,7 @@ app.use(
   cors({ origin: "*", allowMethods: ["POST", "OPTIONS"], allowHeaders: ["Content-Type", "Authorization"], maxAge: 3600 }),
 );
 
-// Provider registry + federation: open CORS
+// Federation: open CORS
 app.use("/api/providers", cors({ origin: "*", allowMethods: ["GET", "OPTIONS"], allowHeaders: ["Content-Type"], maxAge: 3600 }));
 app.use("/federation/*", cors({ origin: "*", allowMethods: ["GET", "POST", "OPTIONS"], allowHeaders: ["Content-Type", "Mycelium-Sig"], maxAge: 3600 }));
 app.use("/.well-known/*", cors({ origin: "*", allowMethods: ["GET", "OPTIONS"], maxAge: 3600 }));
@@ -104,7 +101,6 @@ app.use("/api/connections/*", csrfMiddleware());
 app.use("/api/handoff/*/approve", csrfMiddleware());
 app.use("/api/channels/test", csrfMiddleware());
 app.use("/api/channels/save", csrfMiddleware());
-app.use("/api/settings/providers/*", csrfMiddleware());
 app.use("/api/oauth/delegate", csrfMiddleware());
 
 // ---------------------------------------------------------------------------
@@ -116,14 +112,6 @@ app.use("/auth/register", rateLimit({ windowMs: 60_000, max: 3, keyPrefix: "regi
 app.use("/api/handoff/create", rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "handoff" }));
 
 // ---------------------------------------------------------------------------
-// Provider registration — register all known providers, mount only configured ones
-// ---------------------------------------------------------------------------
-
-registerProvider(googleProviderDef);
-registerProvider(githubProviderDef);
-registerProvider(discordProviderDef);
-
-// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
@@ -132,11 +120,6 @@ app.route("/auth", authRoutes(db, lucia, entityService));
 
 // Entity routes — entity management, register-owner, bind-agent
 app.route("/api/entities", entityRoutes(entityService));
-
-// Dynamic OAuth provider routes — only mounts providers with configured credentials
-const mounted = mountProviders(app, db);
-const availableProviders = mounted.filter((p) => p.available).map((p) => p.def.label);
-const skippedProviders = mounted.filter((p) => !p.available).map((p) => p.def.label);
 
 app.route("/api/connections", connectRoutes(db));
 app.route("/api/handoff", handoffRoutes(db, lucia));
@@ -154,15 +137,9 @@ app.route("/federation", federationIdentityRoutes());
 // Well-known node manifest
 app.get("/.well-known/mycelium-node.json", (c) => c.json(buildNodeManifest()));
 
-// Provider discovery endpoint
+// Provider discovery endpoint — delegates to Hive-ID; returns empty list locally
 app.get("/api/providers", (c) => {
-  return c.json({
-    providers: mounted.map((p) => ({
-      id: p.def.id,
-      label: p.def.label,
-      available: p.available,
-    })),
-  });
+  return c.json({ providers: [] });
 });
 
 // Login page (standalone — central mode primarily)
@@ -173,16 +150,6 @@ app.get("/auth/login", async (c) => {
   const html = layout
     .replace("{{title}}", "Aionima ID — Login")
     .replace("{{content}}", content);
-  return c.html(html);
-});
-
-// Connect result page
-app.get("/connect-result", async (c) => {
-  const resultHtml = await readView("connect-result.html");
-  const layout = await readView("layout.html");
-  const html = layout
-    .replace("{{title}}", "Aionima ID — Connect Result")
-    .replace("{{content}}", resultHtml);
   return c.html(html);
 });
 
@@ -203,12 +170,9 @@ const port = config.port;
 // Start periodic cleanup of expired handoffs
 startHandoffCleanup(db);
 
-if (availableProviders.length > 0) {
-  console.log(`OAuth providers: ${availableProviders.join(", ")}`);
-}
-if (skippedProviders.length > 0) {
-  console.log(`Skipped (no credentials): ${skippedProviders.join(", ")}`);
-}
+// Start Hive-ID registry snapshot cache (offline federation verification)
+startSnapshotRefresh(Number(process.env.SNAPSHOT_REFRESH_MS ?? 300_000));
+console.log("Hive-ID snapshot cache started");
 
 const authModes = ["private-network"];
 if (config.ownerNode.apiKey) authModes.push("node-api-key");
