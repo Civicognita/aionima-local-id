@@ -1,8 +1,8 @@
 [Unit]
 Description=Aionima ID Service — OAuth credential broker
 Documentation=https://github.com/Civicognita/aionima-id
-After=network.target postgresql.service
-Wants=postgresql.service
+After=network.target aionima.service
+Wants=aionima.service
 
 [Service]
 Type=simple
