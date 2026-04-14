@@ -5,10 +5,10 @@
  *   GET  /channels/         — wizard HTML page
  *   GET  /channels/status   — current channel config status (redacted)
  *   POST /channels/test     — validate channel credentials against provider APIs
- *   POST /channels/save     — write channel config to ~/.agi/aionima.json
+ *   POST /channels/save     — write channel config to ~/.agi/gateway.json
  *
  * In local mode the ID service runs on the same machine as the AGI gateway,
- * so reading/writing ~/.agi/aionima.json directly is safe and correct.
+ * so reading/writing ~/.agi/gateway.json directly is safe and correct.
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -54,7 +54,7 @@ interface SaveRequest {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const AGI_CONFIG_PATH = join(homedir(), ".agi", "aionima.json");
+const AGI_CONFIG_PATH = join(homedir(), ".agi", "gateway.json");
 
 async function readAgiConfig(): Promise<AgiConfig> {
   try {
@@ -305,7 +305,7 @@ export function channelRoutes(_db?: unknown) {
   });
 
   // -------------------------------------------------------------------------
-  // POST /save — persist channel config to ~/.agi/aionima.json
+  // POST /save — persist channel config to ~/.agi/gateway.json
   // -------------------------------------------------------------------------
 
   app.post("/save", async (c) => {
