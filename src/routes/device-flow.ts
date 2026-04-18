@@ -25,7 +25,7 @@ import { Hono } from "hono";
 import type { AuthEnv } from "../auth/middleware.js";
 import type { NetworkIdentity } from "../auth/network-identity.js";
 import type { DrizzleDb } from "../db/client.js";
-import { connections, users } from "../db/schema.js";
+import { connections, users, handoffs } from "../db/schema.js";
 import { encrypt, decrypt } from "../crypto.js";
 import { getConfig } from "../config.js";
 // ---------------------------------------------------------------------------
@@ -36,12 +36,10 @@ type DeviceFlowEnv = AuthEnv & { Variables: AuthEnv["Variables"] & { identity?: 
 
 type ProviderName = "github" | "google" | "discord";
 
-interface DeviceSession {
+/** Data stored encrypted in handoffs.connectedServices for device-flow sessions. */
+interface DeviceSessionData {
   provider: ProviderName;
   role: string;
-  deviceCode: string;
-  expiresAt: number;
-  /** Current polling interval in seconds (may grow on slow_down responses) */
   interval: number;
 }
 
@@ -74,15 +72,6 @@ const PROVIDERS: Record<ProviderName, {
     grantType: "urn:ietf:params:oauth:grant-type:device_code",
   },
 };
-
-// ---------------------------------------------------------------------------
-// In-memory session store for active device flow sessions.
-// Keyed by device_code returned by the provider.
-// Local-ID is single-tenant — a Map is sufficient.
-// TTL is enforced by expiresAt on each session entry.
-// ---------------------------------------------------------------------------
-
-const activeSessions = new Map<string, DeviceSession>();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -246,13 +235,19 @@ export function deviceFlowRoutes(db: DrizzleDb) {
       return c.json({ error: `Failed to reach ${provider}: ${msg}` }, 502);
     }
 
-    // Store session keyed by device_code
-    activeSessions.set(data.device_code, {
-      provider,
-      role,
-      deviceCode: data.device_code,
-      expiresAt: Date.now() + data.expires_in * 1000,
-      interval: data.interval ?? 5,
+    // Persist session to handoffs table — survives service restarts.
+    await db.insert(handoffs).values({
+      id: data.device_code,
+      userId: null,
+      status: "pending",
+      connectedServices: encrypt(JSON.stringify({
+        provider,
+        role,
+        interval: data.interval ?? 5,
+      } satisfies DeviceSessionData)),
+      purpose: "device-flow",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + data.expires_in * 1000),
     });
 
     return c.json({
@@ -285,22 +280,31 @@ export function deviceFlowRoutes(db: DrizzleDb) {
       return c.json({ error: "deviceCode query parameter is required" }, 400);
     }
 
-    const session = activeSessions.get(deviceCode);
-    if (!session) {
+    const [sessionRow] = await db
+      .select()
+      .from(handoffs)
+      .where(and(
+        eq(handoffs.id, deviceCode),
+        eq(handoffs.purpose, "device-flow"),
+      ))
+      .limit(1);
+
+    if (!sessionRow) {
       return c.json({ status: "expired" });
     }
-    if (Date.now() > session.expiresAt) {
-      activeSessions.delete(deviceCode);
+    if (new Date() > sessionRow.expiresAt) {
+      await db.delete(handoffs).where(eq(handoffs.id, deviceCode));
       return c.json({ status: "expired" });
     }
 
-    const provider = session.provider;
+    const sessionData = JSON.parse(decrypt(sessionRow.connectedServices!)) as DeviceSessionData;
+    const provider = sessionData.provider;
     const providerCfg = PROVIDERS[provider];
     const clientId = provider === "github" ? GITHUB_CLIENT_ID : "";
 
     const params = new URLSearchParams();
     params.set("client_id", clientId);
-    params.set("device_code", session.deviceCode);
+    params.set("device_code", deviceCode);
     params.set("grant_type", providerCfg.grantType);
 
     let data: Record<string, unknown>;
@@ -323,16 +327,20 @@ export function deviceFlowRoutes(db: DrizzleDb) {
     const error = data.error as string | undefined;
 
     if (error === "authorization_pending") {
-      return c.json({ status: "pending", interval: session.interval });
+      return c.json({ status: "pending", interval: sessionData.interval });
     }
 
     if (error === "slow_down") {
-      session.interval = (session.interval ?? 5) + 5;
-      return c.json({ status: "pending", interval: session.interval });
+      const newInterval = sessionData.interval + 5;
+      await db
+        .update(handoffs)
+        .set({ connectedServices: encrypt(JSON.stringify({ ...sessionData, interval: newInterval } satisfies DeviceSessionData)) })
+        .where(eq(handoffs.id, deviceCode));
+      return c.json({ status: "pending", interval: newInterval });
     }
 
     if (error === "expired_token" || error === "access_denied") {
-      activeSessions.delete(deviceCode);
+      await db.delete(handoffs).where(eq(handoffs.id, deviceCode));
       return c.json({ status: "expired", error });
     }
 
@@ -366,7 +374,7 @@ export function deviceFlowRoutes(db: DrizzleDb) {
       .where(and(
         eq(connections.userId, userId),
         eq(connections.provider, provider),
-        eq(connections.role, session.role),
+        eq(connections.role, sessionData.role),
       ))
       .limit(1);
 
@@ -387,7 +395,7 @@ export function deviceFlowRoutes(db: DrizzleDb) {
         id: randomBytes(16).toString("hex"),
         userId,
         provider,
-        role: session.role,
+        role: sessionData.role,
         accountLabel,
         accessToken: encAccessToken,
         refreshToken: encRefreshToken,
@@ -398,12 +406,12 @@ export function deviceFlowRoutes(db: DrizzleDb) {
       });
     }
 
-    activeSessions.delete(deviceCode);
+    await db.delete(handoffs).where(eq(handoffs.id, deviceCode));
 
     return c.json({
       status: "completed",
       provider,
-      role: session.role,
+      role: sessionData.role,
       accountLabel,
     });
   });
