@@ -27,8 +27,6 @@ import type { NetworkIdentity } from "../auth/network-identity.js";
 import type { DrizzleDb } from "../db/client.js";
 import { connections, users } from "../db/schema.js";
 import { encrypt, decrypt } from "../crypto.js";
-import { getConfig } from "../config.js";
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -89,13 +87,24 @@ const activeSessions = new Map<string, DeviceSession>();
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getProviderCredentials(provider: ProviderName): { clientId: string; clientSecret: string } {
-  const cfg = getConfig();
-  return {
-    clientId: cfg[provider].clientId,
-    clientSecret: cfg[provider].clientSecret,
-  };
-}
+// Civicognita-registered OAuth App client IDs — public, shipped with the application.
+// Device Flow (RFC 8628) uses public clients — no client_secret needed for GitHub.
+// Google and Discord require client_secret for token exchange even in device flow,
+// so those are included here. These are APPLICATION secrets (not user secrets) and
+// are safe to ship — they cannot be used without user consent via the device flow.
+const OAUTH_CLIENTS: Record<ProviderName, { clientId: string; clientSecret?: string }> = {
+  github: {
+    clientId: "PLACEHOLDER_GITHUB_CLIENT_ID",
+  },
+  google: {
+    clientId: "PLACEHOLDER_GOOGLE_CLIENT_ID",
+    clientSecret: "PLACEHOLDER_GOOGLE_CLIENT_SECRET",
+  },
+  discord: {
+    clientId: "PLACEHOLDER_DISCORD_CLIENT_ID",
+    clientSecret: "PLACEHOLDER_DISCORD_CLIENT_SECRET",
+  },
+};
 
 /**
  * Resolve the local user ID to attach connections to.
@@ -181,7 +190,7 @@ export function deviceFlowRoutes(db: DrizzleDb) {
       );
     }
 
-    const creds = getProviderCredentials(provider);
+    const creds = OAUTH_CLIENTS[provider];
     if (!creds.clientId) {
       return c.json(
         { error: `${provider} OAuth client not configured. Set ${provider.toUpperCase()}_CLIENT_ID in environment.` },
@@ -276,11 +285,11 @@ export function deviceFlowRoutes(db: DrizzleDb) {
 
     const provider = session.provider;
     const providerCfg = PROVIDERS[provider];
-    const creds = getProviderCredentials(provider);
+    const creds = OAUTH_CLIENTS[provider];
 
     const params = new URLSearchParams();
     params.set("client_id", creds.clientId);
-    params.set("client_secret", creds.clientSecret);
+    if (creds.clientSecret) params.set("client_secret", creds.clientSecret);
     params.set("device_code", session.deviceCode);
     params.set("grant_type", providerCfg.grantType);
 
@@ -438,7 +447,7 @@ export function deviceFlowRoutes(db: DrizzleDb) {
       return c.json({ error: "Token refresh is only supported for Google" }, 400);
     }
 
-    const creds = getProviderCredentials(provider);
+    const creds = OAUTH_CLIENTS[provider];
 
     const [conn] = await db
       .select()
@@ -457,7 +466,7 @@ export function deviceFlowRoutes(db: DrizzleDb) {
 
     const params = new URLSearchParams();
     params.set("client_id", creds.clientId);
-    params.set("client_secret", creds.clientSecret);
+    if (creds.clientSecret) params.set("client_secret", creds.clientSecret);
     params.set("refresh_token", refreshToken);
     params.set("grant_type", "refresh_token");
 

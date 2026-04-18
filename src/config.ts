@@ -9,11 +9,6 @@
 // Types
 // ---------------------------------------------------------------------------
 
-export interface OAuthProviderCredentials {
-  clientId: string;
-  clientSecret: string;
-}
-
 export interface IdServiceConfig {
   /** Public-facing base URL for OAuth redirects and handoff URLs */
   baseUrl: string;
@@ -30,10 +25,6 @@ export interface IdServiceConfig {
     url: string | undefined;
     apiKey: string | undefined;
   };
-  /** OAuth client credentials for Device Flow (RFC 8628) */
-  github: OAuthProviderCredentials;
-  google: OAuthProviderCredentials;
-  discord: OAuthProviderCredentials;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,18 +69,6 @@ export function loadConfig(): IdServiceConfig {
     ownerNode: {
       url: process.env.OWNER_NODE_URL,
       apiKey: process.env.OWNER_NODE_API_KEY,
-    },
-    github: {
-      clientId: process.env.GITHUB_CLIENT_ID ?? "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
-    },
-    google: {
-      clientId: process.env.GOOGLE_CLIENT_ID ?? "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-    },
-    discord: {
-      clientId: process.env.DISCORD_CLIENT_ID ?? "",
-      clientSecret: process.env.DISCORD_CLIENT_SECRET ?? "",
     },
   };
 
