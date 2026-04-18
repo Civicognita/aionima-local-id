@@ -27,6 +27,7 @@ import type { NetworkIdentity } from "../auth/network-identity.js";
 import type { DrizzleDb } from "../db/client.js";
 import { connections, users } from "../db/schema.js";
 import { encrypt, decrypt } from "../crypto.js";
+import { getConfig } from "../config.js";
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -87,24 +88,16 @@ const activeSessions = new Map<string, DeviceSession>();
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Civicognita-registered OAuth App client IDs — public, shipped with the application.
-// Device Flow (RFC 8628) uses public clients — no client_secret needed for GitHub.
-// Google and Discord require client_secret for token exchange even in device flow,
-// so those are included here. These are APPLICATION secrets (not user secrets) and
-// are safe to ship — they cannot be used without user consent via the device flow.
-const OAUTH_CLIENTS: Record<ProviderName, { clientId: string; clientSecret?: string }> = {
-  github: {
-    clientId: "Ov23liMC3zFFaNwtg58t",
-  },
-  google: {
-    clientId: "PLACEHOLDER_GOOGLE_CLIENT_ID",
-    clientSecret: "PLACEHOLDER_GOOGLE_CLIENT_SECRET",
-  },
-  discord: {
-    clientId: "PLACEHOLDER_DISCORD_CLIENT_ID",
-    clientSecret: "PLACEHOLDER_DISCORD_CLIENT_SECRET",
-  },
-};
+// GitHub: public client — device flow works without client_secret.
+// Google/Discord: require client_secret held by Hive-ID. These providers
+// delegate through Hive-ID which brokers the token exchange.
+const GITHUB_CLIENT_ID = "Ov23liMC3zFFaNwtg58t";
+
+// Providers that work locally (no Hive-ID dependency)
+const LOCAL_PROVIDERS = new Set<ProviderName>(["github"]);
+
+// Providers that require Hive-ID to broker the OAuth exchange
+const HIVE_BROKERED_PROVIDERS = new Set<ProviderName>(["google", "discord"]);
 
 /**
  * Resolve the local user ID to attach connections to.
@@ -190,18 +183,36 @@ export function deviceFlowRoutes(db: DrizzleDb) {
       );
     }
 
-    const creds = OAUTH_CLIENTS[provider];
-    if (!creds.clientId) {
-      return c.json(
-        { error: `${provider} OAuth client not configured. Set ${provider.toUpperCase()}_CLIENT_ID in environment.` },
-        400,
-      );
+    // Google and Discord require Hive-ID to broker the OAuth exchange
+    // (their client_secret is held by Hive-ID, not shipped in the codebase).
+    if (HIVE_BROKERED_PROVIDERS.has(provider)) {
+      const cfg = getConfig();
+      const hiveUrl = cfg.hiveIdUrl;
+      try {
+        const healthRes = await fetch(`${hiveUrl}/health`, { signal: AbortSignal.timeout(3000) });
+        if (!healthRes.ok) throw new Error("unhealthy");
+      } catch {
+        return c.json({
+          error: `${provider} authentication requires Hive-ID (${hiveUrl}) which is not reachable. Hive-ID brokers Google and Discord OAuth on behalf of local nodes.`,
+          reason: "hive_id_required",
+        }, 503);
+      }
+      // TODO: delegate device flow to Hive-ID when it supports it
+      return c.json({
+        error: `${provider} device flow via Hive-ID is not yet implemented. Hive-ID will broker this in a future release.`,
+        reason: "not_implemented",
+      }, 501);
+    }
+
+    const clientId = provider === "github" ? GITHUB_CLIENT_ID : "";
+    if (!clientId) {
+      return c.json({ error: `${provider} OAuth client not configured.` }, 400);
     }
 
     const providerCfg = PROVIDERS[provider];
 
     const params = new URLSearchParams();
-    params.set("client_id", creds.clientId);
+    params.set("client_id", clientId);
     params.set("scope", providerCfg.scopes);
 
     let data: {
@@ -285,11 +296,10 @@ export function deviceFlowRoutes(db: DrizzleDb) {
 
     const provider = session.provider;
     const providerCfg = PROVIDERS[provider];
-    const creds = OAUTH_CLIENTS[provider];
+    const clientId = provider === "github" ? GITHUB_CLIENT_ID : "";
 
     const params = new URLSearchParams();
-    params.set("client_id", creds.clientId);
-    if (creds.clientSecret) params.set("client_secret", creds.clientSecret);
+    params.set("client_id", clientId);
     params.set("device_code", session.deviceCode);
     params.set("grant_type", providerCfg.grantType);
 
@@ -447,58 +457,22 @@ export function deviceFlowRoutes(db: DrizzleDb) {
       return c.json({ error: "Token refresh is only supported for Google" }, 400);
     }
 
-    const creds = OAUTH_CLIENTS[provider];
-
-    const [conn] = await db
-      .select()
-      .from(connections)
-      .where(and(
-        eq(connections.provider, provider),
-        eq(connections.role, role),
-      ))
-      .limit(1);
-
-    if (!conn?.refreshToken) {
-      return c.json({ error: "No refresh token found for this provider/role" }, 404);
-    }
-
-    const refreshToken = decrypt(conn.refreshToken);
-
-    const params = new URLSearchParams();
-    params.set("client_id", creds.clientId);
-    if (creds.clientSecret) params.set("client_secret", creds.clientSecret);
-    params.set("refresh_token", refreshToken);
-    params.set("grant_type", "refresh_token");
-
-    let data: { access_token?: string; expires_in?: number; error?: string };
+    // Google token refresh requires client_secret held by Hive-ID
+    const cfg = getConfig();
     try {
-      const res = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: params.toString(),
-        signal: AbortSignal.timeout(10_000),
-      });
-      data = await res.json() as typeof data;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return c.json({ error: `Refresh request failed: ${msg}` }, 502);
+      const healthRes = await fetch(`${cfg.hiveIdUrl}/health`, { signal: AbortSignal.timeout(3000) });
+      if (!healthRes.ok) throw new Error("unhealthy");
+    } catch {
+      return c.json({
+        error: `Token refresh requires Hive-ID (${cfg.hiveIdUrl}) which is not reachable.`,
+        reason: "hive_id_required",
+      }, 503);
     }
-
-    if (data.error || !data.access_token) {
-      return c.json({ error: `Refresh failed: ${data.error ?? "no access_token in response"}` }, 502);
-    }
-
-    const encAccessToken = encrypt(data.access_token);
-    const tokenExpiresAt = data.expires_in
-      ? new Date(Date.now() + data.expires_in * 1000)
-      : null;
-
-    await db
-      .update(connections)
-      .set({ accessToken: encAccessToken, tokenExpiresAt, updatedAt: new Date() })
-      .where(eq(connections.id, conn.id));
-
-    return c.json({ ok: true, expiresIn: data.expires_in ?? null });
+    // TODO: delegate refresh to Hive-ID when it supports it
+    return c.json({
+      error: "Token refresh via Hive-ID is not yet implemented.",
+      reason: "not_implemented",
+    }, 501);
   });
 
   return app;
