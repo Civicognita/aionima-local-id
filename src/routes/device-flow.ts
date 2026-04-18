@@ -94,7 +94,7 @@ const activeSessions = new Map<string, DeviceSession>();
 // are safe to ship — they cannot be used without user consent via the device flow.
 const OAUTH_CLIENTS: Record<ProviderName, { clientId: string; clientSecret?: string }> = {
   github: {
-    clientId: "PLACEHOLDER_GITHUB_CLIENT_ID",
+    clientId: "Ov23liMC3zFFaNwtg58t",
   },
   google: {
     clientId: "PLACEHOLDER_GOOGLE_CLIENT_ID",
