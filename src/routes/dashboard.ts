@@ -54,21 +54,31 @@ export function dashboardRoutes(db: DrizzleDb) {
               </form>
             </td>
           </tr>`;
-        } else {
-          // OAuth connections always go through Hive-ID delegation
+        }
+
+        // GitHub — uses device flow (works locally, no Hive-ID needed)
+        if (slot.provider === "github") {
           return `
           <tr>
             <td>${escapeHtml(slot.label)}</td>
             <td>—</td>
             <td><span class="badge badge-disconnected">Not connected</span></td>
             <td>
-              <button
-                class="btn btn-sm btn-primary"
-                onclick="connectProvider('${escapeHtml(slot.provider)}', '${escapeHtml(slot.role)}')"
-              >Connect</button>
+              <button class="btn btn-sm btn-primary" onclick="startGithubDeviceFlow('${escapeHtml(slot.role)}')">Connect</button>
             </td>
           </tr>`;
         }
+
+        // Google, Discord — require Hive-ID
+        return `
+          <tr>
+            <td>${escapeHtml(slot.label)}</td>
+            <td>—</td>
+            <td><span class="badge badge-disconnected">Requires Hive-ID</span></td>
+            <td>
+              <span style="font-size:0.8rem;color:var(--text-muted)">Available when Hive-ID is online</span>
+            </td>
+          </tr>`;
       })
       .join("\n");
 

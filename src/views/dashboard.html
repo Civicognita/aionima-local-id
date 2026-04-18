@@ -22,7 +22,40 @@
   </table>
 </div>
 
-<div id="delegate-status" style="display:none;position:fixed;bottom:1.5rem;right:1.5rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1rem 1.25rem;font-size:0.9rem;max-width:320px;z-index:1000;"></div>
+<!-- Device Flow Modal -->
+<div id="device-flow-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;">
+  <div style="max-width:420px;margin:15vh auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:2rem;">
+    <h3 style="margin:0 0 0.5rem 0;">Connect GitHub</h3>
+    <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:1.5rem;">
+      Visit the URL below and enter the code to authorize.
+    </p>
+    <div style="margin-bottom:1rem;">
+      <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.3rem;">Visit this URL:</div>
+      <a id="df-url" href="#" target="_blank" style="font-size:0.95rem;color:var(--accent);font-family:monospace;"></a>
+    </div>
+    <div style="margin-bottom:1.5rem;">
+      <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.3rem;">Enter this code:</div>
+      <div style="display:flex;gap:0.75rem;align-items:center;">
+        <span id="df-code" style="font-size:1.5rem;font-weight:700;letter-spacing:0.2em;font-family:monospace;color:var(--text);"></span>
+        <button class="btn btn-sm btn-secondary" onclick="copyCode()">Copy</button>
+      </div>
+    </div>
+    <div id="df-status" style="font-size:0.85rem;color:var(--text-muted);">
+      <span style="animation:pulse 1.5s infinite;">&#9679;</span> Waiting for authorization...
+    </div>
+    <div id="df-error" style="display:none;font-size:0.85rem;color:var(--danger);margin-top:0.5rem;"></div>
+    <div style="margin-top:1.5rem;display:flex;gap:0.5rem;">
+      <button class="btn btn-sm btn-secondary" onclick="cancelDeviceFlow()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+</style>
 
 <script>
   var HIVE_ID_URL = "{{hive_id_url}}";
@@ -66,89 +99,86 @@
   });
 
   // ---------------------------------------------------------------------------
-  // OAuth delegation via Hive-ID popup
+  // GitHub Device Flow
   // ---------------------------------------------------------------------------
 
-  var delegatePoller = null;
+  var dfPoller = null;
+  var dfDeviceCode = null;
 
-  function showDelegateStatus(msg, type) {
-    var el = document.getElementById("delegate-status");
-    if (!el) return;
-    el.style.display = "block";
-    el.style.color = type === "ok" ? "var(--success)" : type === "fail" ? "var(--danger)" : "var(--text)";
-    el.textContent = msg;
-  }
+  function startGithubDeviceFlow(role) {
+    var modal = document.getElementById("device-flow-modal");
+    var statusEl = document.getElementById("df-status");
+    var errorEl = document.getElementById("df-error");
 
-  function hideDelegateStatus() {
-    var el = document.getElementById("delegate-status");
-    if (el) el.style.display = "none";
-  }
+    modal.style.display = "block";
+    statusEl.style.display = "block";
+    errorEl.style.display = "none";
+    statusEl.innerHTML = "Starting...";
 
-  function connectProvider(provider, role) {
-    if (delegatePoller) {
-      clearInterval(delegatePoller);
-      delegatePoller = null;
-    }
-
-    showDelegateStatus("Connecting to Hive-ID...", "");
-
-    fetch("/api/oauth/delegate", {
+    fetch("/api/auth/device-flow/start", {
       method: "POST",
       credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": getCsrfToken()
-      },
-      body: JSON.stringify({ provider: provider, role: role })
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() },
+      body: JSON.stringify({ provider: "github", role: role || "owner" })
     })
     .then(function(res) { return res.json(); })
     .then(function(data) {
-      if (!data.popupUrl) {
-        showDelegateStatus(data.error || "Failed to start OAuth delegation.", "fail");
+      if (data.error) {
+        errorEl.textContent = data.error;
+        errorEl.style.display = "block";
+        statusEl.style.display = "none";
         return;
       }
 
-      var popup = window.open(data.popupUrl, "hive-oauth", "width=600,height=700,noopener");
-      if (!popup) {
-        showDelegateStatus("Popup blocked. Please allow popups for this site and try again.", "fail");
-        return;
-      }
+      document.getElementById("df-url").textContent = data.verificationUri;
+      document.getElementById("df-url").href = data.verificationUri;
+      document.getElementById("df-code").textContent = data.userCode;
+      dfDeviceCode = data.deviceCode;
+      statusEl.innerHTML = '<span style="animation:pulse 1.5s infinite;">&#9679;</span> Waiting for authorization...';
 
-      showDelegateStatus("Waiting for you to complete OAuth in the popup...", "");
-
-      delegatePoller = setInterval(function() {
-        fetch("/api/oauth/delegate/poll", {
+      // Start polling
+      dfPoller = setInterval(function() {
+        fetch("/api/auth/device-flow/poll?deviceCode=" + encodeURIComponent(dfDeviceCode), {
           credentials: "same-origin"
         })
         .then(function(res) { return res.json(); })
-        .then(function(status) {
-          if (status.complete) {
-            clearInterval(delegatePoller);
-            delegatePoller = null;
-            if (popup && !popup.closed) popup.close();
-            if (status.warning) {
-              showDelegateStatus("Connected (no token returned). " + status.warning, "ok");
-            } else {
-              showDelegateStatus("Connected as " + (status.accountLabel || provider) + ". Refreshing...", "ok");
-            }
+        .then(function(result) {
+          if (result.status === "completed") {
+            clearInterval(dfPoller);
+            dfPoller = null;
+            statusEl.innerHTML = "&#10003; Connected as " + (result.accountLabel || "GitHub") + ". Refreshing...";
+            statusEl.style.color = "var(--success)";
             setTimeout(function() {
-              hideDelegateStatus();
+              modal.style.display = "none";
               window.location.reload();
             }, 1500);
-          } else if (status.error) {
-            clearInterval(delegatePoller);
-            delegatePoller = null;
-            if (popup && !popup.closed) popup.close();
-            showDelegateStatus("OAuth failed: " + status.error, "fail");
+          } else if (result.status === "expired" || result.status === "error") {
+            clearInterval(dfPoller);
+            dfPoller = null;
+            errorEl.textContent = result.error || "Authorization expired. Please try again.";
+            errorEl.style.display = "block";
+            statusEl.style.display = "none";
           }
         })
-        .catch(function() {
-          // Ignore transient poll errors — keep polling
-        });
-      }, 2000);
+        .catch(function() { /* keep polling on network errors */ });
+      }, 3000);
     })
     .catch(function(err) {
-      showDelegateStatus("Network error. Cannot reach the local ID service.", "fail");
+      errorEl.textContent = "Network error: " + err.message;
+      errorEl.style.display = "block";
+      statusEl.style.display = "none";
     });
+  }
+
+  function copyCode() {
+    var code = document.getElementById("df-code").textContent;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(code);
+    }
+  }
+
+  function cancelDeviceFlow() {
+    if (dfPoller) { clearInterval(dfPoller); dfPoller = null; }
+    document.getElementById("device-flow-modal").style.display = "none";
   }
 </script>

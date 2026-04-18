@@ -4,8 +4,8 @@
 </div>
 
 <p style="color: var(--text-muted); margin-bottom: 2rem; font-size: 0.95rem;">
-  OAuth providers (Google, GitHub, Discord) are managed by Hive-ID at <strong id="hive-url-display"></strong>.
-  Hive-ID handles OAuth callbacks from external providers on behalf of this local node.
+  GitHub connects directly via device flow (no external service needed). Google and Discord require
+  Hive-ID to broker the OAuth exchange — these will be available when Hive-ID is online.
 </p>
 
 <div id="hive-status-card" class="provider-card" style="margin-bottom: 2rem;">
@@ -47,24 +47,47 @@
   </div>
 </div>
 
-<div class="provider-card" style="background: rgba(255,152,0,0.05); border-color: rgba(255,152,0,0.3);">
-  <div style="display:flex;align-items:flex-start;gap:0.75rem;">
-    <div style="font-size:1.25rem;line-height:1;">i</div>
-    <div>
-      <div style="font-weight:600;margin-bottom:0.4rem;">How OAuth delegation works</div>
-      <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.6;margin-bottom:0.5rem;">
-        This local node (<code>id.ai.on</code>) cannot receive OAuth callbacks from Google, GitHub, or Discord
-        because external providers cannot reach a local URL.
-      </p>
-      <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.6;margin-bottom:0.5rem;">
-        When you click "Connect" on the Connections page, a popup opens on Hive-ID where you complete
-        the OAuth flow. Once authorized, your tokens are delivered back to this node via the handoff
-        mechanism and stored encrypted in the local database.
-      </p>
-      <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.6;">
-        Token channels (Telegram, Discord bot, Signal, WhatsApp) are entered directly in the Channel Setup
-        wizard and do not require Hive-ID.
-      </p>
+<div class="provider-card" style="margin-bottom: 1.25rem;">
+  <div class="provider-card-header">
+    <div class="provider-identity">
+      <div class="provider-icon" style="background: #24292e;">GH</div>
+      <div>
+        <div class="provider-name">GitHub</div>
+        <div class="provider-meta">Connects directly via device flow — no Hive-ID required</div>
+      </div>
+    </div>
+    <div class="provider-actions">
+      <span class="badge badge-connected">Available</span>
+    </div>
+  </div>
+</div>
+
+<div class="provider-card" style="margin-bottom: 1.25rem;">
+  <div class="provider-card-header">
+    <div class="provider-identity">
+      <div class="provider-icon" style="background: #4285f4;">G</div>
+      <div>
+        <div class="provider-name">Google</div>
+        <div class="provider-meta">Requires Hive-ID to broker the OAuth exchange</div>
+      </div>
+    </div>
+    <div class="provider-actions">
+      <span id="google-badge" class="badge badge-disconnected">Requires Hive-ID</span>
+    </div>
+  </div>
+</div>
+
+<div class="provider-card" style="margin-bottom: 1.25rem;">
+  <div class="provider-card-header">
+    <div class="provider-identity">
+      <div class="provider-icon" style="background: #5865f2;">DC</div>
+      <div>
+        <div class="provider-name">Discord</div>
+        <div class="provider-meta">Requires Hive-ID to broker the OAuth exchange</div>
+      </div>
+    </div>
+    <div class="provider-actions">
+      <span id="discord-badge" class="badge badge-disconnected">Requires Hive-ID</span>
     </div>
   </div>
 </div>
@@ -134,7 +157,6 @@
   }
 
   function applyHiveStatus(status) {
-    document.getElementById("hive-url-display").textContent = status.url || HIVE_ID_URL;
     document.getElementById("hive-url-input").value = status.url || HIVE_ID_URL;
 
     var badge = document.getElementById("hive-badge");
@@ -146,10 +168,16 @@
       badge.className = "badge badge-connected";
       badge.textContent = "Reachable";
       meta.textContent = "Connected to " + escHtml(status.url);
+
+      // When Hive-ID is online, Google and Discord are available
+      var googleBadge = document.getElementById("google-badge");
+      var discordBadge = document.getElementById("discord-badge");
+      if (googleBadge) { googleBadge.className = "badge badge-connected"; googleBadge.textContent = "Available"; }
+      if (discordBadge) { discordBadge.className = "badge badge-connected"; discordBadge.textContent = "Available"; }
     } else {
       badge.className = "badge badge-disconnected";
       badge.textContent = "Unreachable";
-      meta.textContent = "Cannot reach " + escHtml(status.url) + " — OAuth delegation will not work";
+      meta.textContent = "Cannot reach " + escHtml(status.url) + " — Google and Discord will not be available";
     }
 
     if (status.providers && status.providers.length > 0) {
@@ -208,7 +236,6 @@
         msgEl.style.color = "var(--success)";
         msgEl.textContent = "Saved. Restart the service for the change to take effect.";
         HIVE_ID_URL = newUrl;
-        document.getElementById("hive-url-display").textContent = newUrl;
       } else {
         msgEl.style.color = "var(--danger)";
         msgEl.textContent = data.error || "Failed to save.";
