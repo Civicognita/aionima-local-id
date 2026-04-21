@@ -71,8 +71,15 @@ export function authRoutes(db: DrizzleDb, lucia: AppLucia, entityService: Entity
     // Determine if this is the genesis owner (first user on the node)
     const isGenesis = !(await entityService.hasGenesisOwner());
 
+    // Virtual-user backend uses the chosen identifier as the principal so
+    // `(auth_backend, principal)` stays unique. Prefer username (always lower-
+    // cased to match the uniqueness index), else fall back to email.
+    const principal = (username ?? email ?? "").toLowerCase();
+
     await db.insert(users).values({
       id: userId,
+      authBackend: "virtual",
+      principal,
       email: email ? email.toLowerCase() : null,
       username: username ? username.toLowerCase() : null,
       passwordHash,
@@ -161,6 +168,12 @@ export function authRoutes(db: DrizzleDb, lucia: AppLucia, entityService: Entity
     }
 
     if (!user) {
+      return c.json({ error: "Invalid credentials" }, 401);
+    }
+
+    // Shared schema allows null `password_hash` for system-backed users
+    // (PAM/LDAP/AD, Phase 3). Virtual users always have one; reject otherwise.
+    if (!user.passwordHash) {
       return c.json({ error: "Invalid credentials" }, 401);
     }
 

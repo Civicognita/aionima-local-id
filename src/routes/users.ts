@@ -104,9 +104,9 @@ export function userRoutes(db: DrizzleDb, entityService: EntityService) {
       return c.json({ error: "Password too long" }, 400);
     }
 
-    const role = dashboardRole ?? "viewer";
-    if (!["admin", "operator", "viewer"].includes(role)) {
-      return c.json({ error: "dashboardRole must be admin, operator, or viewer" }, 400);
+    const role = (dashboardRole ?? "viewer") as "admin" | "editor" | "viewer";
+    if (!["admin", "editor", "viewer"].includes(role)) {
+      return c.json({ error: "dashboardRole must be admin, editor, or viewer" }, 400);
     }
 
     // Check uniqueness
@@ -125,9 +125,12 @@ export function userRoutes(db: DrizzleDb, entityService: EntityService) {
 
     const name = displayName?.trim() || username;
 
-    // Create user record
+    // Create user record. Virtual backend + username-as-principal keeps
+    // `(auth_backend, principal)` unique alongside any future PAM/LDAP users.
     await db.insert(users).values({
       id: userId,
+      authBackend: "virtual",
+      principal: username.toLowerCase(),
       username: username.toLowerCase(),
       passwordHash,
       displayName: name,
@@ -181,16 +184,16 @@ export function userRoutes(db: DrizzleDb, entityService: EntityService) {
       return c.json({ error: "User not found" }, 404);
     }
 
-    const updates: Partial<{ displayName: string; dashboardRole: string }> = {};
+    const updates: Partial<{ displayName: string; dashboardRole: "admin" | "editor" | "viewer" }> = {};
 
     if (body.displayName !== undefined) {
       updates.displayName = body.displayName.trim();
     }
     if (body.dashboardRole !== undefined) {
-      if (!["admin", "operator", "viewer"].includes(body.dashboardRole)) {
-        return c.json({ error: "dashboardRole must be admin, operator, or viewer" }, 400);
+      if (!["admin", "editor", "viewer"].includes(body.dashboardRole)) {
+        return c.json({ error: "dashboardRole must be admin, editor, or viewer" }, 400);
       }
-      updates.dashboardRole = body.dashboardRole;
+      updates.dashboardRole = body.dashboardRole as "admin" | "editor" | "viewer";
     }
 
     if (Object.keys(updates).length === 0) {
