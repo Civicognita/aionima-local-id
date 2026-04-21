@@ -14,14 +14,19 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_ID_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-AGI_ROOT="$(cd "${LOCAL_ID_ROOT}/../agi" && pwd)"
+# Don't hard-`cd` into the AGI root — the sibling checkout is absent in
+# Docker builds and CI, and `set -e` would abort the script there. Resolve
+# the path lexically and let the presence check below handle missing.
+AGI_ROOT="${LOCAL_ID_ROOT}/../agi"
 SOURCE_DIR="${AGI_ROOT}/packages/db-schema/src"
 TARGET_DIR="${LOCAL_ID_ROOT}/src/db/schema"
 
 if [ ! -d "${SOURCE_DIR}" ]; then
-  echo "error: @agi/db-schema source not found at ${SOURCE_DIR}" >&2
-  echo "       expected sibling checkout of the agi repo at ${AGI_ROOT}" >&2
-  exit 1
+  # Docker builds and CI runs without the sibling AGI workspace checked out.
+  # The committed copy in src/db/schema/ is authoritative in those contexts.
+  # `predev`/`prebuild` calling this from a clean clone is expected.
+  echo "[sync-schema] source not found at ${SOURCE_DIR} — using committed copy" >&2
+  exit 0
 fi
 
 mkdir -p "${TARGET_DIR}"

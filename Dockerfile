@@ -1,38 +1,37 @@
-# Build stage
+# Build stage — compile TS → dist/ and generate migrations from bundled schema.
 FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+COPY package.json package-lock.json ./
+RUN npm ci
 
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile
-
-COPY tsconfig.json ./
-COPY drizzle.config.ts ./
+# Schema files are bundled at build time from the sibling @agi/db-schema
+# package in the AGI workspace. The sync-schema.sh script copies source
+# files into src/db/schema/; they're committed to this repo so the build
+# doesn't require the sibling repo at image-build time.
+COPY tsconfig.json drizzle.config.ts ./
+COPY scripts/ ./scripts/
 COPY src/ ./src/
 
-RUN pnpm build
+RUN npm run build
 
-# Generate migrations from schema (if not already committed)
-RUN pnpm db:generate || true
+# Regenerate drizzle migrations against the (possibly-updated) bundled schema.
+# Idempotent — drizzle-kit only emits a new migration if the schema shape changes.
+RUN npx drizzle-kit generate || true
 
-# Runtime stage
+# Runtime stage — production deps only plus drizzle-kit for boot-time migrate.
 FROM node:22-slim AS runner
 
 WORKDIR /app
 
 ENV NODE_ENV=production
+# Local-ID listens on 3200 per the production .env; the Dockerfile only
+# documents it — the actual bind port comes from the PORT env var.
+ENV PORT=3200
 
-# Install pnpm for production install
-RUN corepack enable && corepack prepare pnpm@latest --activate
-
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile --prod
-
-# Also install drizzle-kit for runtime migrations
-RUN pnpm add drizzle-kit
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm install drizzle-kit
 
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/drizzle ./drizzle
@@ -43,6 +42,6 @@ COPY drizzle.config.ts ./
 COPY start.sh ./
 RUN chmod +x start.sh
 
-EXPOSE 3000
+EXPOSE 3200
 
 CMD ["./start.sh"]
