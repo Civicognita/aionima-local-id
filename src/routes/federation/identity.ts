@@ -99,7 +99,7 @@ export function buildNodeManifest(): Record<string, unknown> {
 
   return {
     schema: "mycelium-node-v1",
-    service: "aionima-local-id",
+    service: "agi-local-id",
     mode: "local",
     url: config.baseUrl,
     capabilities: {

@@ -160,7 +160,7 @@ app.get("/", (c) => c.redirect("/dashboard"));
 
 // Health check
 app.get("/health", (c) =>
-  c.json({ status: "ok", service: "aionima-local-id", mode: "local" }),
+  c.json({ status: "ok", service: "agi-local-id", mode: "local" }),
 );
 
 // ---------------------------------------------------------------------------
