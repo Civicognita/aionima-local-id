@@ -134,34 +134,51 @@
       document.getElementById("df-url").href = data.verificationUri;
       document.getElementById("df-code").textContent = data.userCode;
       dfDeviceCode = data.deviceCode;
-      statusEl.innerHTML = '<span style="animation:pulse 1.5s infinite;">&#9679;</span> Waiting for authorization...';
+      statusEl.textContent = "● Waiting for authorization...";
 
-      // Start polling
-      dfPoller = setInterval(function() {
-        fetch("/api/auth/device-flow/poll?deviceCode=" + encodeURIComponent(dfDeviceCode), {
-          credentials: "same-origin"
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(result) {
-          if (result.status === "completed") {
-            clearInterval(dfPoller);
-            dfPoller = null;
-            statusEl.innerHTML = "&#10003; Connected as " + (result.accountLabel || "GitHub") + ". Refreshing...";
-            statusEl.style.color = "var(--success)";
-            setTimeout(function() {
-              modal.style.display = "none";
-              window.location.reload();
-            }, 1500);
-          } else if (result.status === "expired" || result.status === "error") {
-            clearInterval(dfPoller);
-            dfPoller = null;
-            errorEl.textContent = result.error || "Authorization expired. Please try again.";
-            errorEl.style.display = "block";
-            statusEl.style.display = "none";
-          }
-        })
-        .catch(function() { /* keep polling on network errors */ });
-      }, 3000);
+      // Poll at the server-advised cadence (ref-held setTimeout, not
+      // setInterval). GitHub responds "slow_down" whenever polls arrive
+      // faster than its current rate — each slow_down bumps the server's
+      // stored interval. A hard-coded 3s timer silently buried us in
+      // slow_down loops forever, so the flow stalled at "waiting for
+      // authorization" even after the user granted on github.com.
+      function scheduleNextPoll(delaySec) {
+        var delay = Math.max(1, delaySec | 0) * 1000;
+        dfPoller = setTimeout(function() {
+          fetch("/api/auth/device-flow/poll?deviceCode=" + encodeURIComponent(dfDeviceCode), {
+            credentials: "same-origin"
+          })
+          .then(function(res) { return res.json(); })
+          .then(function(result) {
+            if (result.status === "completed") {
+              dfPoller = null;
+              // Use textContent to avoid injecting result.accountLabel as HTML.
+              statusEl.textContent = "✓ Connected as " + (result.accountLabel || "GitHub") + ". Refreshing...";
+              statusEl.style.color = "var(--success)";
+              setTimeout(function() {
+                modal.style.display = "none";
+                window.location.reload();
+              }, 1500);
+              return;
+            }
+            if (result.status === "expired" || result.status === "error") {
+              dfPoller = null;
+              errorEl.textContent = result.error || "Authorization expired. Please try again.";
+              errorEl.style.display = "block";
+              statusEl.style.display = "none";
+              return;
+            }
+            // Still pending — reschedule using the interval the server
+            // told us (or fall back to 5s, GitHub's minimum).
+            scheduleNextPoll(result.interval || 5);
+          })
+          .catch(function() {
+            // Network blip — retry in a moment, don't give up
+            scheduleNextPoll(5);
+          });
+        }, delay);
+      }
+      scheduleNextPoll(data.interval || 5);
     })
     .catch(function(err) {
       errorEl.textContent = "Network error: " + err.message;
@@ -178,7 +195,9 @@
   }
 
   function cancelDeviceFlow() {
-    if (dfPoller) { clearInterval(dfPoller); dfPoller = null; }
+    // Ref holds a setTimeout handle now (switched from setInterval so the
+    // loop can honor GitHub's slow_down cadence).
+    if (dfPoller) { clearTimeout(dfPoller); dfPoller = null; }
     document.getElementById("device-flow-modal").style.display = "none";
   }
 </script>
