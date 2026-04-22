@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const VIEWS_DIR = join(process.cwd(), "src", "views");
+// Resolve relative to this loader file so it works in both environments:
+//   - dev (tsx): loader.ts sits next to the .html files in src/views/
+//   - prod (Docker): loader.js sits next to the .html files in dist/views/
+// `process.cwd()` isn't stable — the container sets workdir to /app, so
+// `process.cwd()/src/views` 404s at runtime against the real `/app/dist/views`.
+const VIEWS_DIR = dirname(fileURLToPath(import.meta.url));
 
 export async function readView(name: string): Promise<string> {
   return readFile(join(VIEWS_DIR, name), "utf8");
