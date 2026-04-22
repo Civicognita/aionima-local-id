@@ -443,6 +443,68 @@ export function deviceFlowRoutes(db: DrizzleDb) {
   });
 
   /**
+   * GET /token?provider=github&role=owner
+   *
+   * Returns the decrypted OAuth token for the owner's connection on the
+   * requested provider, so AGI (running in the private network) can
+   * authenticate outbound git operations, API calls, etc.
+   *
+   * Private-network-guarded via `identity.isOwner` (same gate as /status).
+   * Tokens never leave the LAN; a future Hive-ID bridge will handle
+   * cross-node brokering.
+   *
+   * Response shape:
+   *   { provider, role, accountLabel, accessToken, tokenType,
+   *     tokenExpiresAt, scopes }
+   * On miss:
+   *   404 { error: "no such connection" }
+   */
+  app.get("/token", async (c) => {
+    const user = c.get("user");
+    const identity = c.get("identity");
+
+    if (!user && !identity?.isOwner) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    const provider = c.req.query("provider");
+    const role = c.req.query("role") ?? "owner";
+
+    if (!provider || typeof provider !== "string") {
+      return c.json({ error: "provider query param required" }, 400);
+    }
+
+    const [row] = await db
+      .select()
+      .from(connections)
+      .where(and(eq(connections.provider, provider), eq(connections.role, role)))
+      .limit(1);
+
+    if (!row || !row.accessToken) {
+      return c.json({ error: "no such connection" }, 404);
+    }
+
+    // `accessToken` is stored encrypted — see /poll where it's `encrypt()`-ed
+    // before insert. Decrypt for the owner and return plaintext.
+    let accessToken: string;
+    try {
+      accessToken = decrypt(row.accessToken);
+    } catch {
+      return c.json({ error: "connection token corrupt" }, 500);
+    }
+
+    return c.json({
+      provider: row.provider,
+      role: row.role,
+      accountLabel: row.accountLabel,
+      accessToken,
+      tokenType: "Bearer",
+      tokenExpiresAt: row.tokenExpiresAt?.toISOString() ?? null,
+      scopes: row.scopes,
+    });
+  });
+
+  /**
    * POST /refresh
    *
    * Refreshes a Google access token using its stored refresh token.
