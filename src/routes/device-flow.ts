@@ -89,12 +89,46 @@ const LOCAL_PROVIDERS = new Set<ProviderName>(["github"]);
 const HIVE_BROKERED_PROVIDERS = new Set<ProviderName>(["google", "discord"]);
 
 /**
- * Resolve the local user ID to attach connections to.
- * Local-ID is single-tenant — use the first user or the well-known sentinel.
+ * Resolve the local user ID to attach connections to. Local-ID is
+ * single-tenant by default — the first user is "the owner" for purposes
+ * of OAuth connection ownership.
+ *
+ * If no user row exists yet (fresh install, owner connecting GitHub
+ * before they've created a dashboard login), auto-provision a minimal
+ * virtual-backend owner row so the connections insert has a valid FK
+ * target. The GitHub accountLabel is used as a display hint; the owner
+ * can rename / set a password later via the /auth/register form and the
+ * row will be adopted as their profile.
  */
-async function resolveLocalUserId(db: DrizzleDb): Promise<string> {
+async function resolveOrCreateLocalOwner(
+  db: DrizzleDb,
+  accountLabelHint: string,
+): Promise<string> {
   const [firstUser] = await db.select({ id: users.id }).from(users).limit(1);
-  return firstUser?.id ?? "local-owner";
+  if (firstUser) return firstUser.id;
+
+  // No users yet — provision one. Principal/username are lowercased + fall
+  // back to "owner" if GitHub didn't give us a label.
+  const principal = (accountLabelHint?.toLowerCase() || "owner").replace(
+    /[^a-z0-9_-]/g,
+    "",
+  ) || "owner";
+  const id = randomBytes(16).toString("hex");
+  try {
+    await db.insert(users).values({
+      id,
+      authBackend: "virtual",
+      principal,
+      username: principal,
+      displayName: accountLabelHint || "Owner",
+      dashboardRole: "admin",
+    });
+  } catch {
+    // Someone raced us — read whatever landed
+    const [again] = await db.select({ id: users.id }).from(users).limit(1);
+    return again?.id ?? id;
+  }
+  return id;
 }
 
 /**
@@ -361,8 +395,10 @@ export function deviceFlowRoutes(db: DrizzleDb) {
     // Fetch display label — non-fatal
     const accountLabel = await fetchAccountLabel(provider, accessToken, tokenType);
 
-    // Persist to connections table
-    const userId = await resolveLocalUserId(db);
+    // Persist to connections table. If no user exists yet, this
+    // auto-provisions the owner from the GitHub account label so the
+    // FK insert below succeeds (previously 500'd on fresh installs).
+    const userId = await resolveOrCreateLocalOwner(db, accountLabel);
     const now = new Date();
     const encAccessToken = encrypt(accessToken);
     const encRefreshToken = refreshToken ? encrypt(refreshToken) : null;
