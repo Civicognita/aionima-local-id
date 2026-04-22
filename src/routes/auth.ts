@@ -1,9 +1,10 @@
-import { hash, verify } from "@node-rs/argon2";
+import { hash } from "@node-rs/argon2";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { nanoid } from "nanoid";
 import type { AppLucia } from "../auth/lucia.js";
 import type { AuthEnv } from "../auth/middleware.js";
+import type { AuthBackendRegistry } from "../auth/backend.js";
 import type { DrizzleDb } from "../db/client.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -12,7 +13,18 @@ import type { EntityService } from "../services/entity-service.js";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_RE = /^[a-zA-Z0-9_-]{3,32}$/;
 
-export function authRoutes(db: DrizzleDb, lucia: AppLucia, entityService: EntityService) {
+/**
+ * Auth routes — credential verification delegates to the pluggable
+ * `AuthBackendRegistry` (Phase 3 / tynn #272). Legacy `/register`
+ * always creates virtual users; `/login` dispatches to whatever backend
+ * owns the principal (virtual, PAM, future LDAP/AD).
+ */
+export function authRoutes(
+  db: DrizzleDb,
+  lucia: AppLucia,
+  entityService: EntityService,
+  authRegistry: AuthBackendRegistry,
+) {
   const app = new Hono<AuthEnv>();
 
   app.post("/register", async (c) => {
@@ -152,41 +164,30 @@ export function authRoutes(db: DrizzleDb, lucia: AppLucia, entityService: Entity
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    let user;
-    if (email) {
-      [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.email, email.toLowerCase()))
-        .limit(1);
-    } else if (username) {
-      [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.username, username.toLowerCase()))
-        .limit(1);
+    // Dispatch to the pluggable auth backend registry. The registry
+    // picks the right backend based on the principal's `users.auth_backend`
+    // column, or walks each registered backend if no profile row exists
+    // yet (PAM users get auto-provisioned on first login). Falls back
+    // gracefully if the only registered backend is virtual and the
+    // principal is unknown.
+    const principal = (username ?? email ?? "").toLowerCase();
+    if (!principal) {
+      return c.json({ error: "Invalid credentials" }, 401);
     }
-
-    if (!user) {
+    const result = await authRegistry.authenticate(principal, { password });
+    if (!result.ok) {
       return c.json({ error: "Invalid credentials" }, 401);
     }
 
-    // Shared schema allows null `password_hash` for system-backed users
-    // (PAM/LDAP/AD, Phase 3). Virtual users always have one; reject otherwise.
-    if (!user.passwordHash) {
-      return c.json({ error: "Invalid credentials" }, 401);
-    }
-
-    const valid = await verify(user.passwordHash, password);
-    if (!valid) {
-      return c.json({ error: "Invalid credentials" }, 401);
-    }
-
-    const session = await lucia.createSession(user.id, {});
+    const session = await lucia.createSession(result.profile.id, {});
     const cookie = lucia.createSessionCookie(session.id);
     c.header("Set-Cookie", cookie.serialize(), { append: true });
 
-    return c.json({ success: true, userId: user.id, entityId: user.entityId });
+    return c.json({
+      success: true,
+      userId: result.profile.id,
+      entityId: result.profile.entityId,
+    });
   });
 
   app.post("/logout", async (c) => {

@@ -5,6 +5,9 @@ import { secureHeaders } from "hono/secure-headers";
 import { sessionMiddleware } from "./auth/middleware.js";
 import { networkIdentityMiddleware, setPeerKeyResolver } from "./auth/network-identity.js";
 import { createLucia } from "./auth/lucia.js";
+import { AuthBackendRegistry } from "./auth/backend.js";
+import { VirtualAuthBackend } from "./auth/virtual-backend.js";
+import { PamAuthBackend } from "./auth/pam-backend.js";
 import { db } from "./db/client.js";
 import { authRoutes } from "./routes/auth.js";
 import { entityRoutes } from "./routes/entities/index.js";
@@ -31,6 +34,15 @@ const config = loadConfig();
 
 const lucia = createLucia(db);
 const entityService = createEntityService(db);
+
+// Phase 3 auth — register backends in priority order. Virtual (password_hash)
+// is the default for self-hosted installs; PAM lets system users log in
+// when the helper script is provisioned on the host (/opt/agi-local-id/
+// helpers/pam_auth.sh). LDAP + AD adapters plug into the same registry
+// when the enterprise integrations land.
+const authRegistry = new AuthBackendRegistry(db);
+authRegistry.register(new VirtualAuthBackend(db, authRegistry));
+authRegistry.register(new PamAuthBackend(db, authRegistry));
 
 // Set up peer key resolver for federation auth.
 // Local-ID only knows local peers — return null for all external nodes.
@@ -117,7 +129,7 @@ app.use("/api/handoff/create", rateLimit({ windowMs: 60_000, max: 10, keyPrefix:
 // ---------------------------------------------------------------------------
 
 // Auth routes — email/password with entity auto-creation
-app.route("/auth", authRoutes(db, lucia, entityService));
+app.route("/auth", authRoutes(db, lucia, entityService, authRegistry));
 
 // Entity routes — entity management, register-owner, bind-agent
 app.route("/api/entities", entityRoutes(entityService));
