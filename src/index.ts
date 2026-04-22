@@ -9,6 +9,7 @@ import { AuthBackendRegistry } from "./auth/backend.js";
 import { VirtualAuthBackend } from "./auth/virtual-backend.js";
 import { PamAuthBackend } from "./auth/pam-backend.js";
 import { db } from "./db/client.js";
+import { VERSION } from "./version.js";
 import { authRoutes } from "./routes/auth.js";
 import { entityRoutes } from "./routes/entities/index.js";
 import { connectRoutes } from "./routes/connect.js";
@@ -172,7 +173,7 @@ app.get("/", (c) => c.redirect("/dashboard"));
 
 // Health check
 app.get("/health", (c) =>
-  c.json({ status: "ok", service: "agi-local-id", mode: "local" }),
+  c.json({ status: "ok", service: "agi-local-id", mode: "local", version: VERSION }),
 );
 
 // ---------------------------------------------------------------------------

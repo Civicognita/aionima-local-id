@@ -149,5 +149,30 @@
   <main>
     {{content}}
   </main>
+  <div class="agi-version-badge" title="Aionima ID service version">
+    ID v{{version}}
+  </div>
+  <style>
+    .agi-version-badge {
+      position: fixed;
+      right: 10px;
+      bottom: 10px;
+      padding: 4px 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1;
+      color: var(--text-muted);
+      background: rgba(22, 33, 62, 0.85);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      backdrop-filter: blur(4px);
+      z-index: 10000;
+      user-select: all;
+      pointer-events: auto;
+      opacity: 0.6;
+      transition: opacity 120ms;
+    }
+    .agi-version-badge:hover { opacity: 1; }
+  </style>
 </body>
 </html>
